@@ -1,0 +1,952 @@
+{
+  "name": "void invoices Credit Memo Automation - Zoho to NetSuite",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const invoices = $input.first().json.invoices || [];\n\n// Webhook se date range uthao\n// Actual webhook node ka name \"Webhook\" hai\nconst webhookData = $('Webhook').first().json || {};\n\n// NetSuite script GET method use kar raha hai.\n// Dates query params mein aati hain: from_date and to_date.\nconst requestData = {\n  ...(webhookData.query || {}),\n  ...(webhookData.body || {}),\n};\n\nfunction normalizeDate(value) {\n  if (!value) return null;\n\n  const text = String(value).trim();\n\n  // Format: YYYY-MM-DD\n  if (/^\\d{4}-\\d{2}-\\d{2}$/.test(text)) {\n    return text;\n  }\n\n  // Format: MM/DD/YYYY or M/D/YYYY\n  if (/^\\d{1,2}\\/\\d{1,2}\\/\\d{4}$/.test(text)) {\n    const [month, day, year] = text.split('/');\n\n    const mm = String(month).padStart(2, '0');\n    const dd = String(day).padStart(2, '0');\n\n    return `${year}-${mm}-${dd}`;\n  }\n\n  const parsedDate = new Date(text);\n\n  if (Number.isNaN(parsedDate.getTime())) {\n    return null;\n  }\n\n  return parsedDate.toISOString().slice(0, 10);\n}\n\nconst START_DATE = normalizeDate(\n  requestData.startDate ||\n  requestData.fromDate ||\n  requestData.from_date ||\n  requestData.from\n);\n\nconst END_DATE = normalizeDate(\n  requestData.endDate ||\n  requestData.toDate ||\n  requestData.to_date ||\n  requestData.to\n);\n\n// Agar NetSuite se date missing ho\nif (!START_DATE || !END_DATE) {\n  return [\n    {\n      json: {\n        noVoidInvoices: true,\n        processingStatus: 'ERROR',\n        reportCategory: 'No Void Invoices',\n        errorType: 'DATE_RANGE_MISSING',\n        errorStage: 'Webhook Date Validation',\n        errorMessage: 'Workflow executed from NetSuite, but From Date or To Date was missing/invalid in webhook request.',\n        webhookPayload: requestData,\n        errorDate: new Date().toISOString(),\n      },\n    },\n  ];\n}\n\n// Agar From Date, To Date se bari ho\nif (START_DATE > END_DATE) {\n  return [\n    {\n      json: {\n        noVoidInvoices: true,\n        processingStatus: 'ERROR',\n        reportCategory: 'No Void Invoices',\n        errorType: 'INVALID_DATE_RANGE',\n        errorStage: 'Webhook Date Validation',\n        errorMessage: `Invalid date range received from NetSuite. From Date ${START_DATE} cannot be greater than To Date ${END_DATE}.`,\n        dateFilterStart: START_DATE,\n        dateFilterEnd: END_DATE,\n        webhookPayload: requestData,\n        errorDate: new Date().toISOString(),\n      },\n    },\n  ];\n}\n\nconst eligibleInvoices = invoices.filter(inv => {\n  const isVoid = String(inv.status || '').toLowerCase() === 'void';\n\n  const isSynced =\n    inv.cf_synced_to_netsuite_unformatted === true ||\n    String(inv.cf_synced_to_netsuite || '').toLowerCase() === 'true';\n\n  const invoiceDate = inv.invoice_date;\n\n  const isInDateRange =\n    invoiceDate &&\n    invoiceDate >= START_DATE &&\n    invoiceDate <= END_DATE;\n\n  return isVoid && isSynced && isInDateRange;\n});\n\n// Agar selected date range mein koi invoice na mile\nif (eligibleInvoices.length === 0) {\n  return [\n    {\n      json: {\n        noVoidInvoices: true,\n        processingStatus: 'ERROR',\n        reportCategory: 'No Void Invoices',\n        errorType: 'NO_VOID_SYNCED_INVOICES_IN_DATE_RANGE',\n        errorStage: 'Zoho Fetch',\n        errorMessage: `Workflow executed but no Zoho invoices were found with Status = Void, Synced to NetSuite = TRUE, and invoice_date between ${START_DATE} and ${END_DATE}.`,\n        dateFilterStart: START_DATE,\n        dateFilterEnd: END_DATE,\n        errorDate: new Date().toISOString(),\n      },\n    },\n  ];\n}\n\nreturn eligibleInvoices.map(invoice => ({\n  json: {\n    ...invoice,\n    noVoidInvoices: false,\n    dateFilterStart: START_DATE,\n    dateFilterEnd: END_DATE,\n  },\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        352
+      ],
+      "id": "6c3408c2-feda-461b-bd29-feda139b57db",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        2432,
+        912
+      ],
+      "id": "7c3337c4-883d-4fde-a836-9e3f0b289ad7",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "jsCode": "const invoice = $json;\n\nreturn [\n  {\n    json: {\n      ...invoice,\n      creditMemoExternalId: `Void-${invoice.invoice_number}`,\n      zohoInvoiceNumber: invoice.invoice_number,\n      zohoInvoiceId: invoice.invoice_id,\n      customerName: invoice.customer_name,\n      amount: invoice.total,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2656,
+        576
+      ],
+      "id": "d1574c6a-c373-45a1-bf1c-a6e7bc0b77b4",
+      "name": "Prepare Credit Memo Key"
+    },
+    {
+      "parameters": {
+        "url": "https://9703568.suitetalk.api.netsuite.com/services/rest/record/v1/creditMemo",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "=externalId IS \"{{ $json.creditMemoExternalId }}\""
+            },
+            {
+              "name": "limit",
+              "value": "1"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2880,
+        576
+      ],
+      "id": "da131d56-6ec0-4919-9cb9-d2385287eb86",
+      "name": "NetSuite - Duplicate Check Credit Memo",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "CtVxtny9Lo5YlnX5",
+          "name": "Netsuite Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const netsuiteResponse = $json;\n\n// Get original Zoho invoice data from previous Prepare node\nconst originalInvoice = $('Prepare Credit Memo Key').first().json;\n\nconst resultCount = Number(\n  netsuiteResponse.count || netsuiteResponse.totalResults || 0\n);\n\nreturn [\n  {\n    json: {\n      ...originalInvoice,\n      duplicateCheck: netsuiteResponse,\n      duplicateFound: resultCount > 0,\n      existingCreditMemoId: netsuiteResponse.items?.[0]?.id || null,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3104,
+        576
+      ],
+      "id": "25bde609-4be2-418d-b028-832c4cf3f48d",
+      "name": "Parse Duplicate Check"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "bbb6d13b-b3fb-4c97-8676-c0c1917fa1e6",
+              "leftValue": "={{ $json.duplicateFound }}",
+              "rightValue": "is true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3328,
+        576
+      ],
+      "id": "dc784a29-cfb9-4acd-8f2b-4668fd378404",
+      "name": "IF - Credit Memo Already Exists?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://9703568.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "prefer",
+              "value": "transient"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"q\": \"SELECT id, tranid, externalid, entity, total, memo FROM transaction WHERE type = 'CustInvc' AND (tranid = '{{ $json.zohoInvoiceNumber }}' OR externalid = '{{ $json.zohoInvoiceNumber }}')\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3552,
+        768
+      ],
+      "id": "735e07f5-6bb1-4ba1-8d72-d2a51508ae0e",
+      "name": "NetSuite - SuiteQL Find Original Invoice",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "CtVxtny9Lo5YlnX5",
+          "name": "Netsuite Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = typeof $json.data === 'string'\n  ? JSON.parse($json.data)\n  : $json;\n\nconst originalData = $('IF - Credit Memo Already Exists?').first().json;\n\nconst invoiceFound = Number(response.count || response.totalResults || 0) > 0;\nconst originalInvoice = response.items?.[0] || null;\n\nreturn [\n  {\n    json: {\n      ...originalData,\n      originalInvoiceSearch: response,\n      originalInvoiceFound: invoiceFound,\n      originalNetSuiteInvoiceId: originalInvoice?.id || null,\n      originalNetSuiteInvoiceNumber: originalInvoice?.tranid || originalData.zohoInvoiceNumber,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3776,
+        768
+      ],
+      "id": "053a2350-c701-4281-a3fb-fe3b2787ebdf",
+      "name": "Parse Original Invoice Search"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "b0632cfe-2ab4-4a2c-9265-4d8a372a8c1b",
+              "leftValue": "={{ $json.originalInvoiceFound }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        4000,
+        768
+      ],
+      "id": "e12d1840-ff13-4d81-8d8d-0717605099bc",
+      "name": "IF - Original Invoice Found?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nif (!staticData.creditMemoReport) {\n  staticData.creditMemoReport = {\n    startedAt: new Date().toISOString(),\n    rows: [],\n  };\n}\n\nconst logRow = {\n  invoiceNumber: $json.zohoInvoiceNumber,\n  customerName: $json.customerName || $json.customer_name,\n  amount: $json.amount,\n  status: 'ERROR',\n  category: 'Missing in NetSuite',\n  stage: 'Original Invoice Lookup',\n  message: `Zoho invoice ${$json.zohoInvoiceNumber} is voided, but matching invoice was not found in NetSuite.`,\n  date: new Date().toISOString(),\n};\n\nstaticData.creditMemoReport.rows.push(logRow);\n\nreturn [\n  {\n    json: {\n      ...$json,\n      processingStatus: 'ERROR',\n      reportCategory: 'Missing in NetSuite',\n      errorType: 'MISSING_IN_NETSUITE',\n      errorStage: 'Original Invoice Lookup',\n      errorMessage: logRow.message,\n      errorDate: logRow.date,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4224,
+        880
+      ],
+      "id": "6d11b6ef-30cc-48e8-af13-84dcf664fa34",
+      "name": "Log - Original Invoice Not Found"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ \"https://9703568.suitetalk.api.netsuite.com/services/rest/record/v1/invoice/\" + $json.originalNetSuiteInvoiceId + \"/!transform/creditMemo\" }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  externalId: $json.creditMemoPayload.externalId,\n  tranId: $json.creditMemoPayload.externalId,\n  tranDate: $json.creditMemoPayload.tranDate,\n  memo: $json.creditMemoPayload.memo,\n  location: $json.creditMemoPayload.location,\n  toBeEmailed: false,\n  apply: {\n    items: [\n      {\n        line: 0,\n        amount: Number($json.amount),\n        apply: true,\n        applyDate: $json.creditMemoPayload.tranDate,\n        doc: {\n          id: String($json.originalNetSuiteInvoiceId)\n        }\n      }\n    ]\n  }\n}) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        4672,
+        688
+      ],
+      "id": "a1bb653a-504f-4096-b98e-8e0efd9966c9",
+      "name": "NetSuite - Create Credit Memo",
+      "notesInFlow": false,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "CtVxtny9Lo5YlnX5",
+          "name": "Netsuite Credential"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nif (!staticData.creditMemoReport) {\n  staticData.creditMemoReport = {\n    startedAt: new Date().toISOString(),\n    rows: [],\n  };\n}\n\nconst logRow = {\n  invoiceNumber: $json.zohoInvoiceNumber || $json.invoice_number,\n  customerName: $json.customerName || $json.customer_name,\n  amount: $json.amount || $json.total,\n  status: 'ERROR',\n  category: 'Failed',\n  stage: 'NetSuite Credit Memo Creation',\n  message: $json.error?.message || 'Credit Memo creation failed in NetSuite',\n  date: new Date().toISOString(),\n};\n\nstaticData.creditMemoReport.rows.push(logRow);\n\nreturn [\n  {\n    json: {\n      ...$json,\n      processingStatus: 'ERROR',\n      reportCategory: 'Failed',\n      errorType: 'CREDIT_MEMO_CREATE_FAILED',\n      errorStage: 'NetSuite Credit Memo Creation',\n      errorMessage: logRow.message,\n      errorDate: logRow.date,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4896,
+        1104
+      ],
+      "id": "129cc126-d163-4ac9-bbbc-d8382564954e",
+      "name": "Log - Credit Memo Create Failed"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nif (!staticData.creditMemoReport) {\n  staticData.creditMemoReport = {\n    startedAt: new Date().toISOString(),\n    rows: [],\n  };\n}\n\nconst prepared = $('Prepare Credit Memo Payload').item.json;\nconst payload = prepared.creditMemoPayload || {};\n\nconst logRow = {\n  invoiceNumber: prepared.zohoInvoiceNumber || prepared.invoice_number,\n  customerName: prepared.customerName || prepared.customer_name,\n  amount: prepared.amount || prepared.total,\n  status: 'SUCCESS',\n  category: 'Credit Memo Created',\n  stage: 'Credit Memo Created and Applied',\n  message: `Credit Memo created and applied successfully for Zoho invoice ${prepared.zohoInvoiceNumber}`,\n  creditMemoExternalId: payload.externalId,\n  originalNetSuiteInvoiceId: prepared.originalNetSuiteInvoiceId,\n  originalNetSuiteInvoiceNumber: prepared.originalNetSuiteInvoiceNumber,\n  date: new Date().toISOString(),\n};\n\nstaticData.creditMemoReport.rows.push(logRow);\n\nreturn [\n  {\n    json: {\n      ...prepared,\n      processingStatus: 'SUCCESS',\n      reportCategory: 'Credit Memo Created',\n      creditMemoExternalId: payload.externalId,\n      originalNetSuiteInvoiceId: prepared.originalNetSuiteInvoiceId,\n      originalNetSuiteInvoiceNumber: prepared.originalNetSuiteInvoiceNumber,\n      successMessage: logRow.message,\n      processedDate: logRow.date,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4896,
+        880
+      ],
+      "id": "28e249f9-6308-4c8a-99d7-581db518b675",
+      "name": "Log - Credit Memo Success"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nif (!staticData.creditMemoReport) {\n  staticData.creditMemoReport = {\n    startedAt: new Date().toISOString(),\n    rows: [],\n  };\n}\n\nconst logRow = {\n  invoiceNumber: $json.zohoInvoiceNumber,\n  customerName: $json.customerName || $json.customer_name,\n  amount: $json.amount,\n  status: 'ERROR',\n  category: 'Duplicate Credit Memo',\n  stage: 'Duplicate Check',\n  message: `Credit Memo already exists in NetSuite for Zoho invoice ${$json.zohoInvoiceNumber}`,\n  existingCreditMemoId: $json.existingCreditMemoId || null,\n  date: new Date().toISOString(),\n};\n\nstaticData.creditMemoReport.rows.push(logRow);\n\nreturn [\n  {\n    json: {\n      ...$json,\n      processingStatus: 'ERROR',\n      reportCategory: 'Duplicate Credit Memo',\n      errorType: 'DUPLICATE_CREDIT_MEMO',\n      errorStage: 'Duplicate Check',\n      errorMessage: logRow.message,\n      existingCreditMemoId: $json.existingCreditMemoId || null,\n      errorDate: logRow.date,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3552,
+        576
+      ],
+      "id": "a0b1fc90-770d-40d6-b8ac-ba1aec1ed0e8",
+      "name": "Log - Duplicate Credit Memo"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nconst inputItems = $input.all();\n\nstaticData.creditMemoReport = {\n  startedAt: new Date().toISOString(),\n  rows: [],\n};\n\n// Scenario A: No Void Invoices\nif (inputItems.length === 1 && inputItems[0].json.noVoidInvoices === true) {\n  staticData.creditMemoReport.rows.push({\n    invoiceNumber: '-',\n    customerName: '-',\n    amount: '-',\n    status: 'ERROR',\n    category: 'No Void Invoices',\n    stage: 'Zoho Fetch',\n    message: inputItems[0].json.errorMessage || 'Workflow executed but no voided Zoho invoices were found to process.',\n    date: new Date().toISOString(),\n  });\n}\n\nreturn inputItems;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1984,
+        352
+      ],
+      "id": "0805315b-4752-41c9-9b46-1927635dd25c",
+      "name": "Initialize Report Store"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nconst report = staticData.creditMemoReport || {\n  startedAt: new Date().toISOString(),\n  rows: [],\n};\n\nconst rows = report.rows || [];\nconst startedAt = report.startedAt || new Date().toISOString();\nconst completedAt = new Date().toISOString();\n\nfunction escapeHtml(value) {\n  if (value === null || value === undefined) return '';\n  return String(value)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\"/g, '&quot;');\n}\n\nfunction cleanText(value, maxLength = 300) {\n  if (value === null || value === undefined) return '';\n  const text = String(value);\n  return text.length > maxLength ? text.slice(0, maxLength) : text;\n}\n\nfunction normalizeCategory(row) {\n  if (row.status === 'SUCCESS') return 'Credit Memos Created';\n\n  if (row.category === 'Duplicate Credit Memo') {\n    return 'Skipped Duplicates';\n  }\n\n  if (row.category === 'Missing in NetSuite') {\n    return 'Invoice missing in NetSuite';\n  }\n\n  if (row.category === 'Failed') {\n    return 'Failed';\n  }\n\n  if (row.category === 'No Void Invoices') {\n    return 'No Eligible Void/Synced Invoices';\n  }\n\n  return row.category || row.status || 'Other';\n}\n\nfunction normalizeStage(row) {\n  const stage = row.stage || '';\n\n  if (stage === 'NetSuite Credit Memo Creation') {\n    return 'Credit Memo Creation';\n  }\n\n  if (stage === 'Original Invoice Lookup') {\n    return 'Original Invoice Lookup';\n  }\n\n  if (stage === 'Credit Memo Created and Applied') {\n    return 'Credit Memo Created and Applied';\n  }\n\n  return stage || 'Workflow Processing';\n}\n\nfunction professionalMessage(row) {\n  const category = normalizeCategory(row);\n  const invoiceNumber = row.invoiceNumber || 'the invoice';\n\n  if (category === 'Invoice missing in NetSuite') {\n    return `Zoho invoice ${invoiceNumber} is voided, but matching invoice was not found in NetSuite.`;\n  }\n\n  if (category === 'Skipped Duplicates') {\n    return `Credit memo already exists for Zoho invoice ${invoiceNumber}. Skipped to avoid duplicate.`;\n  }\n\n  if (category === 'Failed') {\n    return `Credit memo could not be created or applied for Zoho invoice ${invoiceNumber}. Please review the NetSuite invoice/application setup.`;\n  }\n\n  if (category === 'No Eligible Void/Synced Invoices') {\n    return `No eligible void synced invoice found for the selected date range.`;\n  }\n\n  return cleanText(row.message || '', 300);\n}\n\nconst normalizedRows = rows.map(row => ({\n  ...row,\n  category: normalizeCategory(row),\n  stage: normalizeStage(row),\n  message: professionalMessage(row),\n}));\n\nconst successRows = normalizedRows.filter(row => row.category === 'Credit Memos Created');\nconst duplicateRows = normalizedRows.filter(row => row.category === 'Skipped Duplicates');\nconst missingRows = normalizedRows.filter(row => row.category === 'Invoice missing in NetSuite');\nconst failedRows = normalizedRows.filter(row => row.category === 'Failed');\nconst noEligibleRows = normalizedRows.filter(row => row.category === 'No Eligible Void/Synced Invoices');\n\nconst totalReportedItems = normalizedRows.length;\nconst successCount = successRows.length;\nconst duplicateCount = duplicateRows.length;\nconst missingCount = missingRows.length;\nconst failedCount = failedRows.length;\nconst noEligibleCount = noEligibleRows.length;\n\nfunction summaryRow(label, value) {\n  return `\n    <tr>\n      <td style=\"border:1px solid #ddd;padding:8px;font-weight:bold;\">${escapeHtml(label)}</td>\n      <td style=\"border:1px solid #ddd;padding:8px;\">${escapeHtml(value)}</td>\n    </tr>\n  `;\n}\n\nfunction section(title, sectionRows) {\n  const bodyRows = sectionRows.length\n    ? sectionRows.map((row, index) => `\n      <tr>\n        <td style=\"border:1px solid #ddd;padding:8px;\">${index + 1}</td>\n        <td style=\"border:1px solid #ddd;padding:8px;\">${escapeHtml(row.invoiceNumber || '')}</td>\n        <td style=\"border:1px solid #ddd;padding:8px;\">${escapeHtml(row.customerName || '')}</td>\n        <td style=\"border:1px solid #ddd;padding:8px;\">${escapeHtml(row.amount || 0)}</td>\n        <td style=\"border:1px solid #ddd;padding:8px;\">${escapeHtml(row.stage || '')}</td>\n        <td style=\"border:1px solid #ddd;padding:8px;\">${escapeHtml(row.message || '')}</td>\n      </tr>\n    `).join('')\n    : `\n      <tr>\n        <td colspan=\"6\" style=\"border:1px solid #ddd;padding:8px;\">No records found</td>\n      </tr>\n    `;\n\n  return `\n    <h3>${escapeHtml(title)}: ${sectionRows.length}</h3>\n    <table style=\"border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:13px;\">\n      <thead>\n        <tr style=\"background:#f2f2f2;\">\n          <th style=\"border:1px solid #ddd;padding:8px;text-align:left;\">#</th>\n          <th style=\"border:1px solid #ddd;padding:8px;text-align:left;\">Invoice</th>\n          <th style=\"border:1px solid #ddd;padding:8px;text-align:left;\">Customer</th>\n          <th style=\"border:1px solid #ddd;padding:8px;text-align:left;\">Amount</th>\n          <th style=\"border:1px solid #ddd;padding:8px;text-align:left;\">Stage</th>\n          <th style=\"border:1px solid #ddd;padding:8px;text-align:left;\">Message</th>\n        </tr>\n      </thead>\n      <tbody>${bodyRows}</tbody>\n    </table>\n    <br/>\n  `;\n}\n\nconst htmlBody = `\n  <div style=\"font-family:Arial,sans-serif;font-size:13px;color:#222;\">\n    <h2>Zoho Void Invoice Credit Memo Automation Report</h2>\n\n    <p>Hello,</p>\n    <p>The credit memo automation workflow has been completed. Please find the execution summary below.</p>\n\n    <h3>Summary</h3>\n    <table style=\"border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:13px;\">\n      <tbody>\n        ${summaryRow('Started At', startedAt)}\n        ${summaryRow('Completed At', completedAt)}\n        ${summaryRow('Total Reported Items', totalReportedItems)}\n        ${summaryRow('Credit Memos Created', successCount)}\n        ${summaryRow('Skipped Duplicates', duplicateCount)}\n        ${summaryRow('Invoice missing in NetSuite', missingCount)}\n        ${summaryRow('Failed', failedCount)}\n        ${summaryRow('No Eligible Void/Synced Invoices', noEligibleCount)}\n      </tbody>\n    </table>\n\n    <br/>\n\n    ${section('Skipped Duplicates', duplicateRows)}\n    ${section('Invoice missing in NetSuite', missingRows)}\n    ${section('Failed', failedRows)}\n    ${section('No Eligible Void/Synced Invoices', noEligibleRows)}\n\n    <p>Regards,<br/>Credit Memo Automation</p>\n  </div>\n`;\n\nconst textBody =\n`Zoho Void Invoice Credit Memo Automation Report\n\nTotal Reported Items: ${totalReportedItems}\nCredit Memos Created: ${successCount}\nSkipped Duplicates: ${duplicateCount}\nInvoice missing in NetSuite: ${missingCount}\nFailed: ${failedCount}\nNo Eligible Void/Synced Invoices: ${noEligibleCount}`;\n\nreturn [\n  {\n    json: {\n      workflowStatus: failedCount > 0 ? 'Completed with Exceptions' : 'Completed',\n      startedAt,\n      completedAt,\n      totalReportedItems,\n      successCount,\n      duplicateCount,\n      missingCount,\n      failedCount,\n      noEligibleCount,\n      subject: `Credit Memo Automation Report - ${new Date().toISOString().slice(0, 10)}`,\n      htmlBody,\n      html: htmlBody,\n      body: htmlBody,\n      message: htmlBody,\n      textBody,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2656,
+        352
+      ],
+      "id": "461c9f0b-de7d-427c-b29b-ad359dc8c9ee",
+      "name": "Build Consolidated Gmail Report"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a68a9480-4826-486e-8aa9-662b54b3ef57",
+              "leftValue": "={{ $json.noVoidInvoices }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2208,
+        352
+      ],
+      "id": "3f979990-f318-43c9-8e24-30b8daa25607",
+      "name": "IF - No Void Invoices?"
+    },
+    {
+      "parameters": {
+        "url": "=https://9703568.suitetalk.api.netsuite.com/services/rest/record/v1/invoice/{{ $json.originalNetSuiteInvoiceId }}?expandSubResources=true",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        4224,
+        688
+      ],
+      "id": "d7f7aa9f-eee3-49b6-821b-c3654242a398",
+      "name": "NetSuite - Get Original Invoice Items",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "CtVxtny9Lo5YlnX5",
+          "name": "Netsuite Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\n// NetSuite invoice response parse karo\nconst nsInvoice = typeof input.data === 'string'\n  ? JSON.parse(input.data)\n  : input;\n\n// Original workflow data previous node se uthao\nconst original = $('Parse Original Invoice Search').item.json;\n\n// Original invoice item lines\nconst invoiceLines = nsInvoice.item?.items || [];\n\nif (!invoiceLines.length) {\n  throw new Error(`Original NetSuite invoice ${original.originalNetSuiteInvoiceNumber} has no item lines.`);\n}\n\n// Date: void date agar ho, warna invoice date\nconst creditMemoDate = original.void_date || original.invoice_date || nsInvoice.tranDate;\n\n// Memo month/year\nconst memoDate = new Date(`${creditMemoDate}T00:00:00`);\nconst memoMonthYear = memoDate.toLocaleString('en-US', {\n  month: 'long',\n  year: 'numeric',\n});\n\n// Original invoice ke same item/qty/rate use karo\nconst creditMemoLines = invoiceLines.map(line => {\n  const qty = Number(line.quantity || 1);\n  const rate = line.rate !== undefined && line.rate !== null\n    ? Number(line.rate)\n    : Number(line.amount || 0) / qty;\n\n  return {\n    item: {\n      id: String(line.item.id),\n    },\n    quantity: qty,\n    rate: rate,\n  };\n});\n\nconst creditMemoPayload = {\n  externalId: original.creditMemoExternalId,\n  tranDate: creditMemoDate,\n  entity: {\n    id: String(nsInvoice.entity?.id || original.originalInvoiceSearch.items[0].entity),\n  },\n  subsidiary: {\n    id: '1',\n  },\n  location: {\n    id: '525',\n  },\n  memo: `Credit Memo for ${memoMonthYear}`,\n  item: {\n    items: creditMemoLines,\n  },\n};\n\nreturn [\n  {\n    json: {\n      ...original,\n      originalNetSuiteInvoiceDetail: nsInvoice,\n      creditMemoPayload,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4448,
+        688
+      ],
+      "id": "2418c226-7dc6-4129-bae1-fe9db5f200c9",
+      "name": "Prepare Credit Memo Payload"
+    },
+    {
+      "parameters": {
+        "path": "0eeee00c-77c9-4aa3-a625-9af14c60ec6a",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        1312,
+        352
+      ],
+      "id": "d79f3df1-463f-46cd-ba4d-9e4bcf514725",
+      "name": "Webhook",
+      "webhookId": "0eeee00c-77c9-4aa3-a625-9af14c60ec6a"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nconst report = staticData.creditMemoReport || {\n  startedAt: new Date().toISOString(),\n  rows: [],\n};\n\nconst summary = $('Build Consolidated Gmail Report').first().json || {};\nconst rows = report.rows || [];\n\nconst completedAt = summary.completedAt || new Date().toISOString();\n\nconst safeTimestamp = new Date().toISOString().replace(/[-:.TZ]/g, '');\nconst parentExternalId = `CM_AUTOMATION_REPORT_${safeTimestamp}_${Math.floor(Math.random() * 100000)}`;\n\nconst parentRecordName = `Credit Memo Automation Report - ${new Date().toISOString()}`;\n\nconst summaryMessage =\n  `Credit Memo Automation completed. ` +\n  `Total: ${summary.totalReportedItems || rows.length}, ` +\n  `Created: ${summary.successCount || 0}, ` +\n  `Skipped: ${summary.duplicateCount || 0}, ` +\n  `Missing in NetSuite: ${summary.missingCount || 0}, ` +\n  `Failed: ${summary.failedCount || 0}.`;\n\nconst parentPayload = {\n  externalId: parentExternalId,\n  name: parentRecordName,\n\n  custrecordcmar_status: summary.workflowStatus || 'Executed',\n  custrecordcmar_started: summary.startedAt || report.startedAt,\n  custrecordcmar_completed: completedAt,\n\n  custrecordcmar_total: Number(summary.totalReportedItems || rows.length || 0),\n  custrecordcmar_created: Number(summary.successCount || 0),\n  custrecordcmar_skipped: Number(summary.duplicateCount || 0),\n  custrecordcmar_missing: Number(summary.missingCount || 0),\n  custrecordcmar_failed: Number(summary.failedCount || 0),\n\n  custrecordcmar_summary: summaryMessage,\n};\n\nreturn [\n  {\n    json: {\n      parentPayload,\n      parentExternalId,\n      parentRecordName,\n      reportRows: rows,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        352
+      ],
+      "id": "9fc63f73-db7a-402e-8206-ebb067832f49",
+      "name": "Prepare NetSuite Parent Report Payload"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://9703568.suitetalk.api.netsuite.com/services/rest/record/v1/customrecord_cm_automation_report",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.parentPayload) }}",
+        "options": {
+          "response": {
+            "response": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3104,
+        352
+      ],
+      "id": "4eb24f7b-2d09-4c44-b93e-5a9722cd8dae",
+      "name": "NetSuite - Create Automation Report Parent",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "CtVxtny9Lo5YlnX5",
+          "name": "Netsuite Credential"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const lookupRaw = $input.first().json || {};\n\nlet lookupResponse = lookupRaw;\n\nif (typeof lookupRaw.data === 'string') {\n  try {\n    lookupResponse = JSON.parse(lookupRaw.data);\n  } catch (error) {\n    throw new Error('Could not parse SuiteQL lookup response data: ' + error.message);\n  }\n} else if (lookupRaw.data && typeof lookupRaw.data === 'object') {\n  lookupResponse = lookupRaw.data;\n}\n\nconst items =\n  lookupResponse.items ||\n  lookupResponse.body?.items ||\n  lookupResponse.data?.items ||\n  lookupRaw.items ||\n  [];\n\nconst parentId =\n  items?.[0]?.id ||\n  items?.[0]?.ID ||\n  lookupResponse.id ||\n  lookupRaw.id ||\n  lookupRaw.body?.id;\n\nif (!parentId) {\n  throw new Error(\n    'Parent NetSuite report ID was not found from SuiteQL lookup. Actual input was: ' +\n    JSON.stringify(lookupRaw)\n  );\n}\n\nconst parentData = $('Prepare NetSuite Parent Report Payload').first().json || {};\nconst allReportRows = parentData.reportRows || [];\n\nfunction normalizeCategory(row) {\n  if (row.status === 'SUCCESS') return 'Credit Memos Created';\n\n  if (row.category === 'Duplicate Credit Memo') {\n    return 'Duplicate Credit Memo Skipped';\n  }\n\n  if (row.category === 'Missing in NetSuite') {\n    return 'Invoice Not Found in NetSuite';\n  }\n\n  if (row.category === 'Failed') {\n    return 'Credit Memo Creation Failed';\n  }\n\n  if (row.category === 'No Void Invoices') {\n    return 'No Eligible Invoice Found';\n  }\n\n  return row.category || row.status || 'Other';\n}\n\nfunction normalizeStage(row) {\n  const stage = row.stage || '';\n\n  if (stage === 'NetSuite Credit Memo Creation') {\n    return 'Credit Memo Creation';\n  }\n\n  if (stage === 'Original Invoice Lookup') {\n    return 'Original Invoice Lookup';\n  }\n\n  return stage || 'Workflow Processing';\n}\n\nfunction cleanText(value, maxLength = 300) {\n  if (value === null || value === undefined) return '';\n  const text = String(value);\n  return text.length > maxLength ? text.slice(0, maxLength) : text;\n}\n\nfunction professionalMessage(row, category) {\n  const invoiceNumber = row.invoiceNumber || 'the invoice';\n\n  if (category === 'Invoice Not Found in NetSuite') {\n    return `Zoho invoice ${invoiceNumber} is voided, but matching invoice was not found in NetSuite.`;\n  }\n\n  if (category === 'Duplicate Credit Memo Skipped') {\n    return `Credit memo already exists for Zoho invoice ${invoiceNumber}. Skipped to avoid duplicate.`;\n  }\n\n  if (category === 'Credit Memo Creation Failed') {\n    return `Credit memo could not be created or applied for Zoho invoice ${invoiceNumber}. Please review the NetSuite invoice/application setup.`;\n  }\n\n  if (category === 'No Eligible Invoice Found') {\n    return `No eligible void synced invoice found for the selected date range.`;\n  }\n\n  return cleanText(row.message || '', 300);\n}\n\n// Do not create child record for successful Credit Memo Created rows\nconst reportRows = allReportRows.filter(row => {\n  const category = normalizeCategory(row);\n  return category !== 'Credit Memos Created';\n});\n\nreturn reportRows.map(row => {\n  const category = normalizeCategory(row);\n  const invoiceNumber = row.invoiceNumber || 'No Invoice';\n  const customerName = row.customerName || '';\n  const stage = normalizeStage(row);\n  const message = professionalMessage(row, category);\n  const lineName = `${invoiceNumber} - ${category}`;\n\n  return {\n    json: {\n      childPayload: {\n        name: cleanText(lineName, 80),\n\n        custrecordcmal_report: {\n          id: String(parentId),\n        },\n        custrecordcmal_category: cleanText(category, 300),\n        custrecordcmal_invoice: cleanText(invoiceNumber, 300),\n        custrecordcmal_customer: cleanText(customerName, 300),\n        custrecordcmal_amount: Number(row.amount || 0),\n        custrecordcmal_stage: cleanText(stage, 300),\n        custrecordcmal_message: cleanText(message, 300),\n      },\n      parentId: String(parentId),\n    },\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3552,
+        352
+      ],
+      "id": "21b7a5ca-f12b-4529-8c14-82664e26bc69",
+      "name": "Prepare NetSuite Child Report Lines"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://9703568.suitetalk.api.netsuite.com/services/rest/record/v1/customrecordcm_automation_line",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.childPayload) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3776,
+        352
+      ],
+      "id": "e201e8b1-92b3-413a-9c70-6f501209a89b",
+      "name": "NetSuite - Create Automation Report Child Lines",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "CtVxtny9Lo5YlnX5",
+          "name": "Netsuite Credential"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://9703568.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Prefer",
+              "value": "transient"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ \"SELECT id FROM customrecord_cm_automation_report WHERE externalid = '\" + $('Prepare NetSuite Parent Report Payload').first().json.parentExternalId + \"'\" }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3328,
+        352
+      ],
+      "id": "6960521d-665f-498c-b438-18e7352dce3d",
+      "name": "NetSuite - Find Automation Report Parent ID",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "CtVxtny9Lo5YlnX5",
+          "name": "Netsuite Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://www.zohoapis.com/billing/v1/invoices?organization_id=893055495&status=void",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "from_date",
+              "value": "={{ $json.query.from_date }}"
+            },
+            {
+              "name": "to_date",
+              "value": "={{ $json.query.to_date }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-com-zoho-subscriptions-organizationid",
+              "value": "=884904251"
+            }
+          ]
+        },
+        "options": {
+          "pagination": {
+            "pagination": {
+              "parameters": {
+                "parameters": [
+                  {
+                    "name": "page",
+                    "value": "={{ $pageCount + 1 }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.page_context.has_more_page }}",
+              "requestInterval": 200
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1536,
+        352
+      ],
+      "id": "87d109a2-9fdf-4b54-9082-5f332c52b0f8",
+      "name": "HTTP Request1",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "HzwpD51WsSrZyhcT",
+          "name": "Zoho Credential"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Initialize Report Store",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Build Consolidated Gmail Report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Credit Memo Key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Credit Memo Key": {
+      "main": [
+        [
+          {
+            "node": "NetSuite - Duplicate Check Credit Memo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NetSuite - Duplicate Check Credit Memo": {
+      "main": [
+        [
+          {
+            "node": "Parse Duplicate Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Duplicate Check": {
+      "main": [
+        [
+          {
+            "node": "IF - Credit Memo Already Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Credit Memo Already Exists?": {
+      "main": [
+        [
+          {
+            "node": "Log - Duplicate Credit Memo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "NetSuite - SuiteQL Find Original Invoice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NetSuite - SuiteQL Find Original Invoice": {
+      "main": [
+        [
+          {
+            "node": "Parse Original Invoice Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Original Invoice Search": {
+      "main": [
+        [
+          {
+            "node": "IF - Original Invoice Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Original Invoice Found?": {
+      "main": [
+        [
+          {
+            "node": "NetSuite - Get Original Invoice Items",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log - Original Invoice Not Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log - Original Invoice Not Found": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NetSuite - Create Credit Memo": {
+      "main": [
+        [
+          {
+            "node": "Log - Credit Memo Success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log - Credit Memo Create Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log - Credit Memo Create Failed": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log - Credit Memo Success": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log - Duplicate Credit Memo": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initialize Report Store": {
+      "main": [
+        [
+          {
+            "node": "IF - No Void Invoices?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Consolidated Gmail Report": {
+      "main": [
+        [
+          {
+            "node": "Prepare NetSuite Parent Report Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - No Void Invoices?": {
+      "main": [
+        [
+          {
+            "node": "Build Consolidated Gmail Report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NetSuite - Get Original Invoice Items": {
+      "main": [
+        [
+          {
+            "node": "Prepare Credit Memo Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Credit Memo Payload": {
+      "main": [
+        [
+          {
+            "node": "NetSuite - Create Credit Memo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare NetSuite Parent Report Payload": {
+      "main": [
+        [
+          {
+            "node": "NetSuite - Create Automation Report Parent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NetSuite - Create Automation Report Parent": {
+      "main": [
+        [
+          {
+            "node": "NetSuite - Find Automation Report Parent ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare NetSuite Child Report Lines": {
+      "main": [
+        [
+          {
+            "node": "NetSuite - Create Automation Report Child Lines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NetSuite - Find Automation Report Parent ID": {
+      "main": [
+        [
+          {
+            "node": "Prepare NetSuite Child Report Lines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "a162cf51-3236-4d01-ae23-c0da652be37e",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "e219200b32b2f867fa86989095a931635722901d82d3761affbd88ad8afadfcf"
+  },
+  "id": "C6hETOVyOTmclv4V",
+  "tags": []
+}

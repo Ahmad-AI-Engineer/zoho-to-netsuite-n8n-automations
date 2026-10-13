@@ -1,0 +1,1583 @@
+{
+  "name": "Data Zoho To Netsuite Payments Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "url": "=https://www.zohoapis.com/billing/v1/payments/{{ $json.payment.payment_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-com-zoho-subscriptions-organizationid",
+              "value": "884904251"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        448,
+        48
+      ],
+      "id": "91bcdfc6-e9a9-4d6c-bcc7-c41ffd570412",
+      "name": "get_payments_zoho",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "HzwpD51WsSrZyhcT",
+          "name": "Zoho Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://www.zohoapis.com/billing/v1/invoices/{{ $json.payment.invoices[0].invoice_id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-com-zoho-subscriptions-organizationid",
+              "value": "884904251"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Get Specific Invoice from Zoho Billing",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        896,
+        48
+      ],
+      "id": "98066b6d-de02-44d8-b0df-7f434720b1ac",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "HzwpD51WsSrZyhcT",
+          "name": "Zoho Credential"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "name": "Replace Me",
+      "typeVersion": 1,
+      "position": [
+        -448,
+        752
+      ],
+      "id": "32b30261-8ab4-433a-827d-988ba75fc158"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "89fc601f-fbce-48a5-b34c-48a1b93a47b3",
+              "leftValue": "={{ $json.invoice }}",
+              "rightValue": "=success",
+              "operator": {
+                "type": "object",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1120,
+        48
+      ],
+      "id": "b60c84f6-5c4b-4b17-93aa-0d5469d77e3e",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get the input data\nconst inputData = $input.first().json;\n\n// Check if there was an error from the HTTP request\nif (inputData.error) {\n  // Extract error details for logging\n  const errorCode = inputData.error.code;\n  const errorStatus = inputData.error.status;\n  const errorMessage = inputData.error.message;\n  \n  // Check if it's a \"customer not found\" error (404 with NONEXISTENT_EXTERNAL_ID)\n  const isNotFoundError = errorStatus === 404 && \n    (errorMessage.includes('NONEXISTENT_EXTERNAL_ID') || \n     errorMessage.includes('does not exist'));\n  \n  return {\n    json: {\n      customerExists: false,\n      message: isNotFoundError \n        ? \"Customer not found in NetSuite.\" \n        : \"HTTP error occurred while checking customer\",\n      errorCode: errorCode,\n      errorStatus: errorStatus,\n      isNotFoundError: isNotFoundError\n    }\n  };\n}\n\n// Check if customer data exists\nif (!inputData.data) {\n  // Return a flag indicating no customer exists\n  return {\n    json: {\n      customerExists: false,\n      message: \"No customer data returned from NetSuite\"\n    }\n  };\n}\n\ntry {\n  // Parse the JSON string from the data field\n  const customerData = JSON.parse(inputData.data);\n\n  // Extract and flatten the important customer information\n  const flattenedCustomer = {\n    // IDs and Basic Info\n    internalId: customerData.id,\n    externalId: customerData.externalId,\n    entityId: customerData.entityId,\n    customerId: customerData.custentity4,\n    \n    // Personal Info\n    firstName: customerData.firstName,\n    lastName: customerData.lastName,\n    isPerson: customerData.isPerson,\n    email: customerData.email,\n    \n    // Address\n    defaultAddress: customerData.defaultAddress,\n    \n    // Status and Settings\n    isInactive: customerData.isInactive,\n    entityStatus: {\n      id: customerData.entityStatus.id,\n      name: customerData.entityStatus.refName\n    },\n    \n    // Financial Info\n    balance: customerData.balance,\n    overdueBalance: customerData.overdueBalance,\n    daysOverdue: customerData.daysOverdue,\n    depositBalance: customerData.depositBalance,\n    unbilledOrders: customerData.unbilledOrders,\n    \n    // Aging\n    aging: customerData.aging,\n    aging1: customerData.aging1,\n    aging2: customerData.aging2,\n    aging3: customerData.aging3,\n    aging4: customerData.aging4,\n    \n    // Currency\n    currency: {\n      id: customerData.currency.id,\n      code: customerData.currency.refName\n    },\n    \n    // Subsidiary\n    subsidiary: {\n      id: customerData.subsidiary.id,\n      name: customerData.subsidiary.refName\n    },\n    \n    // Accounts\n    receivablesAccount: {\n      id: customerData.receivablesAccount.id,\n      name: customerData.receivablesAccount.refName\n    },\n    drAccount: {\n      id: customerData.drAccount.id,\n      name: customerData.drAccount.refName\n    },\n    \n    // Dates\n    dateCreated: customerData.dateCreated,\n    lastModifiedDate: customerData.lastModifiedDate,\n    \n    // Preferences\n    emailPreference: customerData.emailPreference.refName,\n    emailTransactions: customerData.emailTransactions,\n    printTransactions: customerData.printTransactions,\n    unsubscribe: customerData.unsubscribe,\n    \n    // Shipping\n    shippingCarrier: customerData.shippingCarrier.refName,\n    shipComplete: customerData.shipComplete,\n    \n    // Custom Fields\n    customFields: {\n      customerRefund: customerData.custentity_2663_customer_refund,\n      directDebit: customerData.custentity_2663_direct_debit,\n      customerProbability: customerData.custentity_atlas_customer_probability,\n      orderLeadTime: customerData.custentity_c360_entity_order_lead_time,\n      needsApproval: customerData.custentity_naw_trans_need_approval\n    }\n  };\n\n  // Return the flattened data with customerExists flag\n  return { \n    json: {\n      customerExists: true,\n      flattenedCustomer,\n      originalData: customerData\n    }\n  };\n  \n} catch (error) {\n  // If parsing fails, return error flag\n  return {\n    json: {\n      customerExists: false,\n      message: \"Error parsing customer data\",\n      error: error.message\n    }\n  };\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        192
+      ],
+      "id": "8c7dee53-b75a-430c-8797-44c561bd19d9",
+      "name": "flat_customer"
+    },
+    {
+      "parameters": {
+        "url": "=https://9703568.suitetalk.api.netsuite.com/services/rest/record/v1/customer/eid:{{ $json.invoice.contact_number }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1568,
+        192
+      ],
+      "id": "d4d986a2-55c8-4e8d-8d5b-d0255a122ef3",
+      "name": "Check if the Customer Exists in Netsuite",
+      "alwaysOutputData": true,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "CtVxtny9Lo5YlnX5",
+          "name": "Netsuite Credential"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1344,
+        192
+      ],
+      "id": "8680027a-5623-4c22-8ef9-1a20a2d4b2bb",
+      "name": "Wait(2)",
+      "webhookId": "42d4fb64-8410-4a8c-a867-90ddeee11f3e"
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        48
+      ],
+      "id": "c6f1210f-9d0b-4ffa-9e31-ee8320a3df67",
+      "name": "Wait(1)",
+      "webhookId": "da4e336f-cdba-4bf2-aa70-0bad9d68653f"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c87baaa4-8c20-45ec-826c-528413046f72",
+              "leftValue": "={{ $json.customerExists }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2016,
+        192
+      ],
+      "id": "ae374276-a0de-402c-b896-a13ded55df6b",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const payment = $('get_payments_zoho').item.json.payment;\nconst invoice = $('Get Specific Invoice from Zoho Billing').item.json.invoice;\nconst customer = $('flat_customer').item.json.flattenedCustomer;\n\nfunction formatPaymentMonth(dateString) {\n  if (!dateString) return '';\n  const date = new Date(dateString);\n  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', \n                  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];\n  return `${months[date.getMonth()]} ${date.getFullYear()}`;\n}\n\nconst paymentMonth = formatPaymentMonth(payment.date);\n\nconst netsuitePayload = {\n  customer: {\n    id: customer.internalId\n  },\n  payment: payment.amount,\n  tranDate: payment.date,\n  tranId: `${payment.payment_id}`,\n  account: {\n    id: \"122\"\n  },\n  subsidiary: {\n    id: \"1\"\n  },\n  currency: {\n    id: customer.currency.id\n  },\n  memo: `Zoho Payment for ${paymentMonth}`,\n  externalId: `${payment.payment_id}`,\n  custbody5: payment.reference_number\n  // NO apply here — will be patched after creation\n};\n\nreturn {\n  json: {\n    payload: netsuitePayload,\n    invoice_number: invoice.invoice_number,  // passed forward for PATCH step\n    payment_amount: payment.amount,\n    reference_data_from_previous_nodes: {\n      zoho_payment_id: payment.payment_id,\n      zoho_payment_number: payment.payment_number,\n      zoho_invoice_id: invoice.invoice_id,\n      zoho_invoice_number: invoice.invoice_number,\n      customer_name: invoice.customer_name,\n      customer_external_id: customer.externalId,\n      netsuite_customer_id: customer.internalId,\n      payment_amount: payment.amount,\n      payment_date: payment.date,\n      payment_mode: payment.payment_mode,\n      currency: customer.currency.code,\n      zoho_reference_number: payment.reference_number\n    }\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3136,
+        288
+      ],
+      "id": "139b93e4-09de-475c-ae37-6f185883766b",
+      "name": "Create Payload to Create Payment in Netsuite"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://9703568.suitetalk.api.netsuite.com/services/rest/record/v1/customerpayment",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.payload }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3360,
+        288
+      ],
+      "id": "40dfe315-0bd1-44ed-be1b-e9b420cfa3c3",
+      "name": "Create Payment",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "CtVxtny9Lo5YlnX5",
+          "name": "Netsuite Credential"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "d683327b-03f3-49d3-bacd-b146185671e7",
+              "leftValue": true,
+              "rightValue": "={{ $json.success }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3808,
+        288
+      ],
+      "id": "2edc09c5-a03c-446f-8fe2-f16438e9389c",
+      "name": "If2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nif (!items || items.length === 0) {\n  return [\n    {\n      json: {\n        success: false,\n        error: true,\n        errorType: 'NO_INPUT',\n        friendlyMessage: 'No input received from Create Payment node',\n        actionableSteps: 'Check Create Payment node connection.',\n        paymentContext: {\n          zoho_payment_id: '',\n          zoho_payment_number: '',\n          customer_name: '',\n          payment_amount: 0,\n          invoice_number: '',\n        },\n      },\n    },\n  ];\n}\n\nfunction getPaymentReference() {\n  try {\n    const previousItems = $items('Create Payload to Create Payment in Netsuite');\n    const previousJson = previousItems?.[0]?.json || {};\n\n    return previousJson.reference_data_from_previous_nodes || {\n      zoho_payment_id: previousJson.payload?.externalId || '',\n      zoho_payment_number: '',\n      customer_name: '',\n      payment_amount: previousJson.payment_amount || previousJson.payload?.payment || 0,\n      zoho_invoice_number: previousJson.invoice_number || '',\n    };\n  } catch (error) {\n    return {\n      zoho_payment_id: '',\n      zoho_payment_number: '',\n      customer_name: '',\n      payment_amount: 0,\n      zoho_invoice_number: '',\n    };\n  }\n}\n\nfunction buildPaymentContext(paymentReference) {\n  return {\n    zoho_payment_id: paymentReference.zoho_payment_id || '',\n    zoho_payment_number: paymentReference.zoho_payment_number || '',\n    customer_name: paymentReference.customer_name || '',\n    payment_amount: Number(paymentReference.payment_amount || 0),\n    invoice_number: paymentReference.zoho_invoice_number || '',\n  };\n}\n\nreturn items.map((item) => {\n  const input = item.json || {};\n  const paymentReference = getPaymentReference();\n  const paymentContext = buildPaymentContext(paymentReference);\n\n  // NetSuite successful create sometimes returns empty object\n  const isEmptyObject =\n    input &&\n    typeof input === 'object' &&\n    !Array.isArray(input) &&\n    Object.keys(input).length === 0;\n\n  if (isEmptyObject) {\n    return {\n      json: {\n        success: true,\n        error: false,\n        errorType: '',\n        friendlyMessage: 'Payment created successfully in NetSuite',\n        actionableSteps: '',\n        technicalDetails: {},\n        paymentContext,\n      },\n    };\n  }\n\n  // Error case from Create Payment node\n  if (input.error) {\n    const errorMessage = input.error.message || '';\n    const errorStatus = input.error.status || 0;\n    const errorCode = input.error.code || '';\n    const errorName = input.error.name || '';\n\n    const fullErrorText = JSON.stringify(input.error).toLowerCase();\n\n    let errorType = 'UNKNOWN_ERROR';\n    let friendlyMessage = 'Payment Creation Failed';\n    let actionableSteps = 'Review NetSuite payment creation error.';\n\n    if (\n      fullErrorText.includes('already exists') ||\n      fullErrorText.includes('duplicate')\n    ) {\n      errorType = 'DUPLICATE_PAYMENT';\n      friendlyMessage = 'Payment Already Exists in NetSuite';\n      actionableSteps = 'Payment already exists in NetSuite. Skipped to avoid duplicate.';\n    } else if (errorStatus === 400 || fullErrorText.includes('bad request')) {\n      errorType = 'BAD_REQUEST';\n      friendlyMessage = 'NetSuite Bad Request';\n      actionableSteps = 'NetSuite rejected the payment payload. Review required fields and values.';\n    } else if (errorStatus === 401) {\n      errorType = 'AUTH_ERROR';\n      friendlyMessage = 'NetSuite Authentication Failed';\n      actionableSteps = 'Check NetSuite OAuth credentials.';\n    } else if (errorStatus === 403) {\n      errorType = 'PERMISSION_ERROR';\n      friendlyMessage = 'NetSuite Permission Denied';\n      actionableSteps = 'Check NetSuite role permissions.';\n    } else if (errorStatus === 404) {\n      errorType = 'NOT_FOUND';\n      friendlyMessage = 'NetSuite Record Not Found';\n      actionableSteps = 'Check customer, invoice, account, subsidiary, or currency IDs.';\n    }\n\n    return {\n      json: {\n        success: false,\n        error: true,\n        errorType,\n        friendlyMessage,\n        actionableSteps,\n        technicalDetails: {\n          status: errorStatus,\n          code: errorCode,\n          name: errorName,\n          message: errorMessage,\n        },\n        paymentContext,\n      },\n    };\n  }\n\n  // Any non-error response\n  return {\n    json: {\n      success: true,\n      error: false,\n      errorType: '',\n      friendlyMessage: 'Payment response did not contain an error',\n      actionableSteps: '',\n      technicalDetails: input,\n      paymentContext,\n    },\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3584,
+        288
+      ],
+      "id": "655c6a29-3ff2-4d5e-9f24-347b88dd61b2",
+      "name": "Format Error and Branching"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -224,
+        656
+      ],
+      "id": "bc6fd174-3ecd-460c-b321-4142f6c18262",
+      "name": "Loop Over Items1"
+    },
+    {
+      "parameters": {
+        "url": "=https://www.zohoapis.com/billing/v1/payments/{{ $json.payment_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-com-zoho-subscriptions-organizationid",
+              "value": "884904251"
+            }
+          ]
+        },
+        "options": {
+          "pagination": {}
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        0,
+        48
+      ],
+      "id": "66a7a0e8-f50c-426d-9c8d-031c335200a9",
+      "name": "Get a single payment",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "HzwpD51WsSrZyhcT",
+          "name": "Zoho Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "59cf536e-cc85-4551-8d55-3c43a8b826e7",
+              "leftValue": "={{ ($json.payment.custom_field_hash?.cf_synced_to_netsuite_unformatted === true) || (String($json.payment.custom_field_hash?.cf_synced_to_netsuite || '').toLowerCase() === 'true') }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        224,
+        48
+      ],
+      "id": "79a95343-c41f-464c-b2eb-615e5053d642",
+      "name": "Filter unprocessed payments"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get the payment data from 'Get a single payment' node\nconst payment = $('Get a single payment').item.json.payment;\nconst PAYMENT_SYNC_FIELD_ID = '6326029000010763609';\nconst PAYMENT_SYNC_FIELD_LABEL = 'Synced-to-NetSuite';\n\nif (!payment) {\n  throw new Error('Payment data not found from \"Get a single payment\" node');\n}\n\nconst syncField = (payment.custom_fields || []).find(field =>\n  field.customfield_id === PAYMENT_SYNC_FIELD_ID ||\n  field.field_id === PAYMENT_SYNC_FIELD_ID ||\n  field.api_name === 'cf_synced_to_netsuite' ||\n  field.placeholder === 'cf_synced_to_netsuite'\n) || {};\n\n// Prepare the update payload with all required fields\nconst payload = {\n  customer_id: payment.customer_id,\n  payment_mode: payment.payment_mode,\n  amount: payment.amount,\n  date: payment.date,\n  reference_number: payment.reference_number,\n  description: payment.description || '',\n  invoices: (payment.invoices || []).map(inv => ({\n    invoice_id: inv.invoice_id,\n    amount_applied: inv.amount_applied\n  })),\n  custom_fields: [\n    {\n      customfield_id: PAYMENT_SYNC_FIELD_ID,\n      label: PAYMENT_SYNC_FIELD_LABEL,\n      value: true  // Mark as processed/synced to NetSuite\n      // Zoho validates the label string exactly when one is sent.\n      // PAYMENT_SYNC_FIELD_LABEL must match the field label in Zoho.\n      // The backend api name cf_synced_to_netsuite is unchanged.\n    }\n  ]\n};\n\n// Optional: Add other fields if they exist in the original payment\nif (payment.exchange_rate) {\n  payload.exchange_rate = payment.exchange_rate;\n}\n\nif (payment.bank_charges) {\n  payload.bank_charges = payment.bank_charges;\n}\n\nif (payment.tax_account_id) {\n  payload.tax_account_id = payment.tax_account_id;\n}\n\nif (payment.account_id) {\n  payload.account_id = payment.account_id;\n}\n\nconst originalValue = payment.custom_field_hash?.cf_synced_to_netsuite_unformatted ?? syncField.value ?? null;\n\nreturn {\n  json: {\n    payment_id: payment.payment_id,\n    payload: payload,\n    debug_info: {\n      payment_sync_customfield_id: PAYMENT_SYNC_FIELD_ID,\n      payment_sync_field_label: PAYMENT_SYNC_FIELD_LABEL,\n      original_custom_field_value: originalValue,\n      new_custom_field_value: true,\n      payment_number: payment.payment_number,\n      customer_name: payment.customer_name,\n      amount: payment.amount\n    }\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4704,
+        752
+      ],
+      "id": "e9670dd3-23f9-46ba-a534-5b609e95c8d1",
+      "name": "Prepare Payload to Update Custom Field"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://www.zohoapis.com/billing/v1/payments/{{ $json.payment_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-com-zoho-subscriptions-organizationid",
+              "value": "884904251"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.payload }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        4928,
+        752
+      ],
+      "id": "04fd5a61-f4f4-4f18-814d-731ec259c704",
+      "name": "Update Payment",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "HzwpD51WsSrZyhcT",
+          "name": "Zoho Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://9703568.suitetalk.api.netsuite.com/services/rest/record/v1/customerpayment/eid:{{ $('Create Payload to Create Payment in Netsuite').item.json.payload.externalId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ apply: { items: $('Check Invoice Status').item.json.applyItems } }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        4032,
+        224
+      ],
+      "id": "70453e5f-9310-4a7c-b44d-f8c648b2fa20",
+      "name": "Patch_Payment",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "CtVxtny9Lo5YlnX5",
+          "name": "Netsuite Credential"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "=https://www.zohoapis.com/billing/v1/payments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "from_date",
+              "value": "={{ $json.query.from_date }}"
+            },
+            {
+              "name": "to_date",
+              "value": "={{ $json.query.to_date }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-com-zoho-subscriptions-organizationid",
+              "value": "884904251"
+            }
+          ]
+        },
+        "options": {
+          "pagination": {
+            "pagination": {
+              "parameters": {
+                "parameters": [
+                  {
+                    "name": "page",
+                    "value": "={{ $pageCount + 1 }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.page_context.has_more_page }}",
+              "requestInterval": 200
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -896,
+        560
+      ],
+      "id": "0933ebf7-49a8-4789-b09f-fcb3fd4c80cb",
+      "name": "Get All Payments1",
+      "executeOnce": true,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "HzwpD51WsSrZyhcT",
+          "name": "Zoho Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "path": "9f0a2a42-e4e2-4f7d-9d9d-4ac8cecf229e",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1120,
+        560
+      ],
+      "id": "8d9bdafb-6cae-4d65-893b-f4aa1819459b",
+      "name": "Webhook1",
+      "webhookId": "9f0a2a42-e4e2-4f7d-9d9d-4ac8cecf229e"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = [];\n\nfor (const item of $input.all()) {\n  const payments = item.json.payments || [];\n  for (const payment of payments) {\n    items.push({ json: payment });\n  }\n}\n\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -672,
+        560
+      ],
+      "id": "bf39fee4-ddd7-4ef0-8c05-17deb6c2133c",
+      "name": "Break to separate Items"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst items = $input.all();\n\n// Always overwrite — never carry rows from a previous run/retry\nstaticData.paymentReport = {\n  startedAt: new Date().toISOString(),\n  runId: `RUN_${Date.now()}`,\n  rows: [],\n  totalExpected: items.length,\n};\n\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        560
+      ],
+      "id": "e26ef46d-bcac-49be-beb7-dee89906f174",
+      "name": "Initialize Payment Report Store"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nif (!staticData.paymentReport) {\n  staticData.paymentReport = {\n    startedAt: new Date().toISOString(),\n    rows: [],\n  };\n}\n\nlet payment = {};\ntry {\n  payment = $('get_payments_zoho').item.json.payment || {};\n} catch (error) {}\n\nconst logRow = {\n  paymentId: payment.payment_id || '',\n  paymentNumber: payment.payment_number || '',\n  invoiceNumber: '',\n  customerName: payment.customer_name || '',\n  customerNumber: payment.contact_number || '',\n  referenceNumber: payment.reference_number || '',\n  amount: payment.amount || 0,\n  status: 'ERROR',\n  category: 'Zoho Invoice Error',\n  stage: 'Get Specific Invoice from Zoho Billing',\n  message: $json.friendlyMessage || $json.errorMessage || 'Zoho invoice was not found or invoice fetch failed.',\n  technicalDetails: $json.originalError || $json,\n  date: new Date().toISOString(),\n};\n\nstaticData.paymentReport.rows.push(logRow);\n\nreturn [\n  {\n    json: {\n      ...$json,\n      processingStatus: 'ERROR',\n      reportCategory: 'Zoho Invoice Error',\n      parent: {\n        workflowName: 'Zoho to NetSuite Payment Automation',\n        status: 'ERROR',\n        stage: 'Get Specific Invoice from Zoho Billing',\n        paymentId: logRow.paymentId,\n        paymentNumber: logRow.paymentNumber,\n      },\n      child: logRow,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        0
+      ],
+      "id": "3b071cb7-c619-4264-9ad8-2e17186e8617",
+      "name": "Log - Zoho Invoice Error"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nif (!staticData.paymentReport) {\n  staticData.paymentReport = {\n    startedAt: new Date().toISOString(),\n    rows: [],\n  };\n}\n\nlet payment = {};\nlet invoice = {};\n\ntry {\n  payment = $('get_payments_zoho').item.json.payment || {};\n} catch (error) {}\n\ntry {\n  invoice = $('Get Specific Invoice from Zoho Billing').item.json.invoice || {};\n} catch (error) {}\n\nconst logRow = {\n  paymentId: payment.payment_id || '',\n  paymentNumber: payment.payment_number || '',\n  invoiceNumber: invoice.invoice_number || '',\n  customerName: invoice.customer_name || payment.customer_name || '',\n  customerNumber: invoice.contact_number || payment.contact_number || '',\n  referenceNumber: payment.reference_number || '',\n  amount: payment.amount || 0,\n  status: 'ERROR',\n  category: 'Customer Lookup Error',\n  stage: 'Check if Customer Exists in NetSuite',\n  message: $json.friendlyMessage || 'Customer was not found in NetSuite or customer lookup failed.',\n  technicalDetails: $json.originalError || $json,\n  date: new Date().toISOString(),\n};\n\nstaticData.paymentReport.rows.push(logRow);\n\nreturn [\n  {\n    json: {\n      ...$json,\n      processingStatus: 'ERROR',\n      reportCategory: 'Customer Lookup Error',\n      parent: {\n        workflowName: 'Zoho to NetSuite Payment Automation',\n        status: 'ERROR',\n        stage: 'Check if Customer Exists in NetSuite',\n        paymentId: logRow.paymentId,\n        paymentNumber: logRow.paymentNumber,\n      },\n      child: logRow,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2464,
+        240
+      ],
+      "id": "d93f3ba2-1ac8-4b66-b933-6a289d043b1c",
+      "name": "Log - Customer Lookup Error"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nif (!staticData.paymentReport) {\n  staticData.paymentReport = {\n    startedAt: new Date().toISOString(),\n    rows: [],\n  };\n}\n\nconst context = $json.paymentContext || {};\n\nconst errorType = $json.errorType || '';\nconst messageText = String($json.friendlyMessage || $json.actionableSteps || '').toLowerCase();\n\nconst isDuplicate =\n  errorType === 'DUPLICATE_PAYMENT' ||\n  messageText.includes('already exists') ||\n  messageText.includes('duplicate');\n\nconst category = isDuplicate ? 'Skipped Duplicates' : 'Failed';\nconst stage = isDuplicate ? 'Duplicate Check' : 'Payment Creation';\n\nconst invoiceNumber = context.invoice_number || '';\nconst customerName = context.customer_name || '';\nlet customerNumber = '';\ntry { customerNumber = $('flat_customer').item.json.flattenedCustomer.entityId || ''; } catch (e) {}\nlet referenceNumber = '';\ntry { referenceNumber = $('get_payments_zoho').item.json.payment.reference_number || ''; } catch (e) {}\nconst amount = Number(context.payment_amount || 0);\n\nconst logMessage = isDuplicate\n  ? `Payment already exists in NetSuite for invoice ${invoiceNumber}. Skipped to avoid duplicate.`\n  : ($json.friendlyMessage || 'Payment could not be created in NetSuite.');\n\nconst logRow = {\n  paymentId: context.zoho_payment_id || '',\n  paymentNumber: context.zoho_payment_number || '',\n  invoiceNumber,\n  customerName,\n  customerNumber,\n  referenceNumber,\n  amount,\n  status: isDuplicate ? 'SKIPPED' : 'ERROR',\n  category,\n  stage,\n  message: logMessage,\n  actionableSteps: $json.actionableSteps || '',\n  technicalDetails: $json.technicalDetails || $json,\n  errorType,\n  date: new Date().toISOString(),\n};\n\nstaticData.paymentReport.rows.push(logRow);\n\nreturn [\n  {\n    json: {\n      ...$json,\n      processingStatus: isDuplicate ? 'SKIPPED' : 'ERROR',\n      reportCategory: category,\n      parent: {\n        workflowName: 'Zoho to NetSuite Payment Automation',\n        status: isDuplicate ? 'SKIPPED' : 'ERROR',\n        stage,\n        paymentId: logRow.paymentId,\n        paymentNumber: logRow.paymentNumber,\n      },\n      child: logRow,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4704,
+        528
+      ],
+      "id": "8b281e4e-69e6-4ce6-858f-87126ad2deb1",
+      "name": "Log - Payment Creation Failed"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nif (!staticData.paymentReport) {\n  staticData.paymentReport = {\n    startedAt: new Date().toISOString(),\n    rows: [],\n  };\n}\n\nlet reference = {};\n\ntry {\n  reference = $('Create Payload to Create Payment in Netsuite').item.json.reference_data_from_previous_nodes || {};\n} catch (error) {}\n\nlet customerNumber = '';\ntry { customerNumber = $('flat_customer').item.json.flattenedCustomer.entityId || ''; } catch (e) {}\n\nconst logRow = {\n  paymentId: reference.zoho_payment_id || '',\n  paymentNumber: reference.zoho_payment_number || '',\n  invoiceNumber: reference.zoho_invoice_number || '',\n  customerName: reference.customer_name || '',\n  customerNumber,\n  amount: reference.payment_amount || 0,\n  status: 'SUCCESS',\n  category: 'Payment Synced',\n  stage: 'Zoho Payment Updated',\n  message: `Payment ${reference.zoho_payment_number || ''} synced successfully to NetSuite.`,\n  technicalDetails: $json,\n  date: new Date().toISOString(),\n};\n\nstaticData.paymentReport.rows.push(logRow);\n\nreturn [\n  {\n    json: {\n      ...$json,\n      processingStatus: 'SUCCESS',\n      reportCategory: 'Payment Synced',\n      parent: {\n        workflowName: 'Zoho to NetSuite Payment Automation',\n        status: 'SUCCESS',\n        stage: 'Zoho Payment Updated',\n        paymentId: logRow.paymentId,\n        paymentNumber: logRow.paymentNumber,\n      },\n      child: logRow,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5152,
+        912
+      ],
+      "id": "e31a2c0e-5144-45da-9078-048ae4973b79",
+      "name": "Log - Payment Sync Success"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\n// Read all processed rows directly from the loop's done-branch input items\nconst allItems = $input.all();\nconst rawRows = allItems\n  .map(item => item.json.child || null)\n  .filter(row => row !== null && (row.paymentId || row.paymentNumber || row.invoiceNumber));\n\n// Use startedAt recorded at initialization\nconst report = staticData.paymentReport || { startedAt: new Date().toISOString() };\nconst startedAt = report.startedAt || new Date().toISOString();\n\nfunction normalizeCategory(row) {\n  const msg = String(row.message || row.friendlyMessage || '').toLowerCase();\n  const errorType = String(row.errorType || row.technicalDetails?.errorType || '').toUpperCase();\n  const category = String(row.category || '').toLowerCase();\n\n  if (row.status === 'SUCCESS' || category === 'payment synced') return 'Created';\n\n  if (\n    errorType === 'DUPLICATE_PAYMENT' ||\n    category.includes('skipped duplicate') ||\n    category === 'already synced' ||\n    msg.includes('already exists') ||\n    msg.includes('duplicate')\n  ) return 'Skipped Duplicates';\n\n  if (\n    category.includes('invoice') ||\n    (msg.includes('invoice') && msg.includes('not found')) ||\n    msg.includes('nonexistent_external_id')\n  ) return 'Invoice Missing in NetSuite';\n\n  return 'Failed';\n}\n\nfunction normalizeStage(row, c) {\n  if (row.stage) return row.stage;\n  if (c === 'Skipped Duplicates') return 'Duplicate Check';\n  if (c === 'Invoice Missing in NetSuite') return 'Invoice Lookup';\n  if (c === 'Created') return 'Zoho Payment Updated';\n  return 'Workflow Processing';\n}\n\nconst CATEGORY_PRIORITY = { 'Created': 4, 'Skipped Duplicates': 3, 'Invoice Missing in NetSuite': 2, 'Failed': 1 };\nfunction priorityOf(c) { return CATEGORY_PRIORITY[c] || 0; }\n\nconst uniqueMap = new Map();\nfor (const row of rawRows) {\n  const c = normalizeCategory(row);\n  const s = normalizeStage(row, c);\n  const key = String(row.paymentId || row.paymentNumber || row.invoiceNumber || '').trim();\n  if (!key) continue;\n  const existing = uniqueMap.get(key);\n  if (!existing || priorityOf(c) > priorityOf(existing.normalizedCategory)) {\n    uniqueMap.set(key, { ...row, normalizedCategory: c, stage: s });\n  }\n}\n\nconst normalizedRows = Array.from(uniqueMap.values());\n\nconst completedAt = new Date().toISOString();\n\nconst totalReportedPayments = normalizedRows.length;\nconst paymentsCreated = normalizedRows.filter(r => r.normalizedCategory === 'Created').length;\nconst skippedDuplicates = normalizedRows.filter(r => r.normalizedCategory === 'Skipped Duplicates').length;\nconst invoiceMissing = normalizedRows.filter(r => r.normalizedCategory === 'Invoice Missing in NetSuite').length;\nconst failed = normalizedRows.filter(r => r.normalizedCategory === 'Failed').length;\n\nconst totalAmount = normalizedRows.reduce((sum, r) => sum + Number(r.amount || 0), 0);\n\nconst workflowStatus =\n  failed > 0 || invoiceMissing > 0 || skippedDuplicates > 0\n    ? 'Completed with Exceptions'\n    : 'Completed';\n\nconst parentExternalId = `PAYMENT_RUN_${Date.now()}`;\n\nconst summaryMessage =\n  `Payment Automation completed. ` +\n  `Total: ${totalReportedPayments}, ` +\n  `Created: ${paymentsCreated}, ` +\n  `Invoice missing: ${invoiceMissing}, ` +\n  `Skipped duplicate: ${skippedDuplicates}, ` +\n  `Failed: ${failed}.`;\n\nconst parentPayload = {\n  externalId: parentExternalId,\n  name: `Payment Automation Report - ${completedAt}`,\n  custrecordcustrecordpar_status: workflowStatus,\n  custrecordcustrecordpar_started: startedAt,\n  custrecordcustrecordpar_completed: completedAt,\n  custrecordcustrecordpar_total: Number(totalReportedPayments),\n  custrecordcustrecordpar_recorded: Number(paymentsCreated),\n  custrecordcustrecordpar_missing: Number(invoiceMissing),\n  custrecordcustrecordpar_skipped: Number(skippedDuplicates),\n  custrecordcustrecordpar_failed: Number(failed),\n  custrecordcustrecordpar_amount: Number(totalAmount),\n  custrecordcustrecordpar_summary: summaryMessage,\n};\n\n// Reset AFTER reading so the next run starts clean (prevents cross-run bleed)\nstaticData.paymentReport = { startedAt: new Date().toISOString(), rows: [] };\n\nreturn [\n  {\n    json: {\n      parentPayload,\n      parentExternalId,\n      reportRows: normalizedRows,\n      debug: { rawRowsCount: rawRows.length, uniqueRowsCount: normalizedRows.length },\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        480
+      ],
+      "id": "4ff05cec-c874-4256-b670-f7c60f9d55d6",
+      "name": "Prepare NetSuite Parent Report Payload"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://9703568.suitetalk.api.netsuite.com/services/rest/record/v1/customrecord_payment_par",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.parentPayload) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        224,
+        480
+      ],
+      "id": "a9cd3a24-482b-4353-8a1c-3cf7486f0d63",
+      "name": "NetSuite - Create Automation Report Parent",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "CtVxtny9Lo5YlnX5",
+          "name": "Netsuite Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://9703568.suitetalk.api.netsuite.com/services/rest/record/v1/customrecord_payment_ch",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.childPayload) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 5000
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        896,
+        480
+      ],
+      "id": "79a1bb53-dc55-4e4d-93d4-346cf512fc93",
+      "name": "NetSuite - Create Automation Report Child Lines",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "CtVxtny9Lo5YlnX5",
+          "name": "Netsuite Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check if we have an error in the response\nconst inputData = $input.first().json;\n\n// Check if error exists\nif (inputData.error) {\n  // Extract error details\n  const errorMessage = inputData.error.message || 'Unknown error';\n  const errorDescription = inputData.error.description || '';\n  \n  // Create human-friendly message based on error type\n  let friendlyMessage = '';\n  \n  if (errorMessage.includes('could not be found') || errorDescription.includes('does not exist')) {\n    friendlyMessage = 'Invoice does not exist in Zoho. Please verify the invoice ID and try again.';\n  } else if (errorMessage.includes('unauthorized') || errorMessage.includes('authentication')) {\n    friendlyMessage = 'Authentication failed. Please check your Zoho credentials.';\n  } else if (errorMessage.includes('rate limit')) {\n    friendlyMessage = 'Rate limit exceeded. Please wait a moment and try again.';\n  } else {\n    friendlyMessage = `Error: ${errorMessage}`;\n  }\n  \n  return {\n    json: {\n      success: false,\n      error: true,\n      friendlyMessage: friendlyMessage,\n      originalError: {\n        message: errorMessage,\n        description: errorDescription,\n        timestamp: inputData.error.timestamp\n      }\n    }\n  };\n}\n\n// If no error, return success\nreturn {\n  json: {\n    success: true,\n    error: false,\n    data: inputData\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        0
+      ],
+      "id": "15d5140c-40f1-4613-a1ad-c43c7eb143ad",
+      "name": "Format Zoho Invoice Error"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\n// Check if we have an error\nif (input.error) {\n  const errorMessage = input.error.message || '';\n  const errorCode = input.error.code || '';\n  const errorStatus = input.error.status || 0;\n  \n  let friendlyMessage = '';\n  let errorType = '';\n  \n  // Parse NetSuite-specific errors\n  if (errorStatus === 500 || errorCode === 'ERR_BAD_RESPONSE') {\n    // Try to extract NetSuite error details from the message\n    try {\n      const match = errorMessage.match(/Error ID: ([a-z0-9]+)/);\n      const errorId = match ? match[1] : 'unknown';\n      \n      friendlyMessage = `NetSuite Internal Server Error\\n\\nThe customer lookup failed in NetSuite. This usually means:\\n• The customer with this external ID doesn't exist in NetSuite\\n• NetSuite is experiencing temporary issues\\n\\nError ID: ${errorId}\\n\\nPlease verify the customer exists in NetSuite or try again later.`;\n      errorType = 'NETSUITE_INTERNAL_ERROR';\n    } catch (e) {\n      friendlyMessage = 'NetSuite Internal Server Error. The customer may not exist in NetSuite or there is a temporary issue.';\n      errorType = 'NETSUITE_ERROR';\n    }\n  } else if (errorStatus === 404 || errorMessage.includes('could not be found')) {\n    friendlyMessage = 'Customer not found in NetSuite. Please verify the external ID exists.';\n    errorType = 'NOT_FOUND';\n  } else if (errorMessage.includes('unauthorized') || errorStatus === 401) {\n    friendlyMessage = 'Authentication failed. Please check your NetSuite credentials.';\n    errorType = 'AUTH_ERROR';\n  } else if (errorStatus === 429) {\n    friendlyMessage = 'Rate limit exceeded. Please wait and try again.';\n    errorType = 'RATE_LIMIT';\n  } else {\n    friendlyMessage = `An error occurred: ${errorMessage.substring(0, 200)}`;\n    errorType = 'UNKNOWN_ERROR';\n  }\n  \n  return {\n    json: {\n      success: false,\n      error: true,\n      errorType: errorType,\n      friendlyMessage: friendlyMessage,\n      originalError: {\n        message: errorMessage,\n        code: errorCode,\n        status: errorStatus\n      }\n    }\n  };\n}\n\n// If no error, return success\nreturn {\n  json: {\n    success: true,\n    error: false,\n    data: input\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        96
+      ],
+      "id": "98a5b0bf-04a5-4578-9cff-e142b7e2f513",
+      "name": "Format Customer Lookup Error"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://9703568.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Prefer",
+              "value": "transient"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"q\": \"SELECT id FROM customrecord_payment_par WHERE externalid = '{{ $('Prepare NetSuite Parent Report Payload').first().json.parentExternalId }}'\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        448,
+        480
+      ],
+      "id": "d4e9060d-244d-43c7-be4b-1acd46dcea2e",
+      "name": "NetSuite - Find Automation Report Parent ID",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "CtVxtny9Lo5YlnX5",
+          "name": "Netsuite Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const lookupRaw = $input.first().json || {};\nlet lookupResponse = lookupRaw;\nif (typeof lookupRaw.data === 'string') {\n  lookupResponse = JSON.parse(lookupRaw.data);\n} else if (lookupRaw.body && typeof lookupRaw.body === 'string') {\n  lookupResponse = JSON.parse(lookupRaw.body);\n} else if (lookupRaw.body && typeof lookupRaw.body === 'object') {\n  lookupResponse = lookupRaw.body;\n} else if (lookupRaw.data && typeof lookupRaw.data === 'object') {\n  lookupResponse = lookupRaw.data;\n}\nconst items =\n  lookupResponse.items ||\n  lookupResponse.body?.items ||\n  lookupResponse.data?.items ||\n  lookupRaw.items ||\n  [];\nconst parentId =\n  items?.[0]?.id ||\n  items?.[0]?.ID ||\n  lookupResponse.id ||\n  lookupRaw.id;\nif (!parentId) {\n  throw new Error(\n    'Parent NetSuite report ID was not found from lookup. Actual input was: ' +\n    JSON.stringify(lookupRaw)\n  );\n}\nconst parentData = $('Prepare NetSuite Parent Report Payload').first().json || {};\nconst uniqueRows = parentData.reportRows || [];\nfunction cleanText(value, maxLength = 300) {\n  if (value === null || value === undefined) return '';\n  const text = String(value);\n  return text.length > maxLength ? text.slice(0, maxLength) : text;\n}\nfunction getCategory(row) {\n  return row.normalizedCategory || row.category || 'Failed';\n}\n// Only log exception lines — do NOT show successfully created payments\nconst exceptionRows = uniqueRows.filter(row => getCategory(row) !== 'Created');\nreturn exceptionRows.map(row => {\n  const category = getCategory(row);\n  const invoiceNum = row.invoiceNumber || '';\n  const paymentRef = row.paymentId || row.paymentNumber || '';\n  const customerNum = row.customerNumber || row.customerName || '';\n  const amount = Number(row.amount || 0);\n  const recordName = invoiceNum\n    ? `${invoiceNum} - ${category}`\n    : `${paymentRef} - ${category}`;\n  const childPayload = {\n    name: cleanText(recordName, 80),\n    custrecordcustrecordpal_report: { id: String(parentId) },\n    custrecordcustrecordpal_category: cleanText(category, 300),\n    custrecordcustrecordpal_invoice: cleanText(invoiceNum, 300),\n    custrecordcustrecordpal_customer: cleanText(customerNum, 300),\n    custrecordcustrecordpal_amount: amount,\n    custrecordcustrecordpal_extref: cleanText(paymentRef, 300),\n    custrecordcustrecordpal_stage: cleanText(row.stage || 'Workflow Processing', 300),\n    custrecordcustrecordpal_message: cleanText(row.message || '', 1000),\n    custrecordcustrecordpal_totalpayment: amount,\n    custrecord155: cleanText(row.customerNumber || '', 300),\n  };\n  // Gateway Transaction ID (custrecord156) — Integer Number field, sourced from Zoho reference_number.\n  // Only set when reference_number is a valid integer; omit otherwise to avoid NetSuite type errors.\n  const refInt = parseInt(row.referenceNumber, 10);\n  if (Number.isFinite(refInt)) {\n    childPayload.custrecord156 = refInt;\n  }\n  return {\n    json: {\n      childPayload,\n      parentId: String(parentId),\n    },\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        480
+      ],
+      "id": "a705665c-bc0d-4ece-a34d-2c9d0060efe4",
+      "name": "Prepare NetSuite Child Report Lines"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate validation across ALL invoices tagged on the payment.\n// Rule: fail the WHOLE payment if ANY invoice is missing OR has zero open balance.\n// Otherwise apply capped amount = min(zoho_applied, netsuite_remaining) per invoice.\n\nconst lookups  = $input.all();                          // NetSuite lookup results (per invoice, in order)\nconst expanded = $('Expand Payment Invoices').all();    // source invoice rows (in order)\nconst paymentAmount = Number($('get_payments_zoho').item.json.payment.amount || 0);\n\nconst applyItems = [];\nconst failures = [];\nlet anyMissing = false;\n\nfor (let i = 0; i < expanded.length; i++) {\n  const src = expanded[i].json || {};\n  const invoiceNumber = src.invoice_number;\n  const zohoApplied = Number(src.zoho_applied || 0);\n\n  if (src._noInvoices) {\n    failures.push('Payment has no tagged invoices in Zoho.');\n    anyMissing = true;\n    continue;\n  }\n\n  const raw = (lookups[i] && lookups[i].json) || {};\n  let invoice = raw;\n  try {\n    if (typeof raw.data === 'string') invoice = JSON.parse(raw.data);\n    else if (raw.data && typeof raw.data === 'object') invoice = raw.data;\n    else if (typeof raw.body === 'string') invoice = JSON.parse(raw.body);\n    else if (raw.body && typeof raw.body === 'object') invoice = raw.body;\n  } catch (e) { invoice = {}; }\n\n  const internalId = invoice && invoice.id;\n\n  // CASE 1: invoice not found in NetSuite -> fail whole payment\n  if (raw.error || !internalId) {\n    failures.push(`Invoice ${invoiceNumber || '(unknown)'} does not exist in NetSuite.`);\n    anyMissing = true;\n    continue;\n  }\n\n  const rawRemaining = invoice.amountRemaining ?? invoice.amountremaining ?? invoice.amountDue ?? invoice.amountdue;\n  const amountRemaining = Number(rawRemaining ?? 0);\n\n  // CASE 2: no open balance -> fail whole payment\n  if (amountRemaining <= 0) {\n    failures.push(`Invoice ${invoiceNumber} has no open balance in NetSuite (amountRemaining=${rawRemaining ?? 'n/a'}).`);\n    continue;\n  }\n\n  // CASE 3: OK -> apply capped amount\n  const applyAmount = Math.min(zohoApplied > 0 ? zohoApplied : amountRemaining, amountRemaining);\n  applyItems.push({ doc: { externalId: String(invoiceNumber) }, apply: true, amount: applyAmount });\n}\n\nconst invoiceValid = failures.length === 0 && applyItems.length > 0;\n\nreturn [{\n  json: {\n    invoiceValid,\n    invoiceStatus: invoiceValid ? 'OK' : (anyMissing ? 'MISSING' : 'FULLY_PAID'),\n    applyItems,\n    paymentAmount,\n    totalApplied: applyItems.reduce((s, x) => s + x.amount, 0),\n    failures,\n    message: invoiceValid\n      ? `All ${applyItems.length} invoice(s) valid. Payment will be created and applied.`\n      : `Payment NOT created. Issues: ${failures.join(' ')}`,\n  },\n  pairedItem: { item: 0 }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2688,
+        432
+      ],
+      "id": "410efeea-8bce-4d3a-b1f5-14a4e0112971",
+      "name": "Check Invoice Status"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "5dacaa69-defc-49e3-bd0d-15b8d2323f1b",
+              "leftValue": "={{ $json.invoiceValid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2912,
+        432
+      ],
+      "id": "6dafa793-718f-4d15-b321-f7a13308843b",
+      "name": "If Invoice Valid"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nif (!staticData.paymentReport) {\n  staticData.paymentReport = { startedAt: new Date().toISOString(), rows: [] };\n}\n\nlet payment = {};\nlet invoice = {};\ntry { payment = $('get_payments_zoho').item.json.payment || {}; } catch (e) {}\ntry { invoice = $('Get Specific Invoice from Zoho Billing').item.json.invoice || {}; } catch (e) {}\n\nconst status = $json.invoiceStatus || 'MISSING';\nconst isMissing = status === 'MISSING';\nconst isDuplicate = status === 'DUPLICATE';\n\nconst category = isDuplicate ? 'Skipped Duplicates' : (isMissing ? 'Invoice Missing in NetSuite' : 'Failed');\nconst stage = isDuplicate ? 'Duplicate Check' : (isMissing ? 'Invoice Lookup' : 'Invoice Already Paid');\nconst logStatus = isDuplicate ? 'SKIPPED' : 'ERROR';\nconst message = $json.message ||\n  (isDuplicate\n    ? 'Payment was already synced to NetSuite. Skipping as duplicate.'\n    : isMissing\n    ? 'Invoice does not exist in NetSuite. Payment was NOT created.'\n    : 'Invoice already fully paid in NetSuite. Payment was NOT created.');\n\nlet customerNumber = payment.contact_number || '';\ntry { customerNumber = $('flat_customer').item.json.flattenedCustomer.entityId || customerNumber; } catch(e) {}\n\nconst logRow = {\n  paymentId: payment.payment_id || '',\n  paymentNumber: payment.payment_number || '',\n  invoiceNumber: invoice.invoice_number || '',\n  customerName: invoice.customer_name || payment.customer_name || '',\n  customerNumber,\n  referenceNumber: payment.reference_number || '',\n  amount: payment.amount || 0,\n  status: logStatus,\n  category,\n  stage,\n  message,\n  technicalDetails: $json,\n  date: new Date().toISOString(),\n};\n\nstaticData.paymentReport.rows.push(logRow);\n\nreturn [{\n  json: {\n    ...$json,\n    processingStatus: logStatus,\n    reportCategory: category,\n    parent: {\n      workflowName: 'Zoho to NetSuite Payment Automation',\n      status: logStatus,\n      stage,\n      paymentId: logRow.paymentId,\n      paymentNumber: logRow.paymentNumber,\n    },\n    child: logRow,\n  },\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3808,
+        560
+      ],
+      "id": "d9cd2778-4c3c-44e8-82c9-0bd14628033c",
+      "name": "Log - Invoice Check Failed"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Result coming from the Patch_Payment node\nconst raw = $input.first().json || {};\n\n// Patch_Payment has \"On Error: Continue (using regular output)\",\n// so a failed apply shows up as raw.error. A successful apply has no error.\nconst applied = !raw.error;\n\n// Pull reference info so we can log it nicely if the apply failed\nlet ref = {};\ntry {\n  ref = $('Create Payload to Create Payment in Netsuite').item.json.reference_data_from_previous_nodes || {};\n} catch (e) {}\n\nconst paymentContext = {\n  zoho_payment_id: ref.zoho_payment_id || '',\n  zoho_payment_number: ref.zoho_payment_number || '',\n  customer_name: ref.customer_name || '',\n  payment_amount: Number(ref.payment_amount || 0),\n  invoice_number: ref.zoho_invoice_number || '',\n};\n\nreturn [{\n  json: {\n    patchApplied: applied,\n    success: applied,\n    errorType: applied ? '' : 'APPLY_FAILED',\n    friendlyMessage: applied\n      ? 'Payment applied to the invoice successfully.'\n      : 'Payment was created but could NOT be applied to the invoice.',\n    actionableSteps: applied\n      ? ''\n      : 'Review the NetSuite apply (Patch) error. The payment may need to be applied or removed manually.',\n    technicalDetails: raw,\n    paymentContext,\n  },\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4256,
+        224
+      ],
+      "id": "57751f6a-816a-49c4-b22e-505b754468d9",
+      "name": "Check Patch Success"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "4a8e19c8-c91a-404a-9149-f5f2cdcac9f1",
+              "leftValue": "={{ $json.patchApplied }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        4480,
+        224
+      ],
+      "id": "a1c477d3-8f00-49ad-914c-9409f1065180",
+      "name": "If Patch Applied"
+    },
+    {
+      "parameters": {
+        "url": "=https://9703568.suitetalk.api.netsuite.com/services/rest/record/v1/invoice/eid:{{ $json.invoice_number }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2464,
+        432
+      ],
+      "id": "4ad61b2b-0ff4-487c-bb1e-38b685d6c616",
+      "name": "Check Invoice in NetSuite",
+      "alwaysOutputData": true,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "CtVxtny9Lo5YlnX5",
+          "name": "Netsuite Credential"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nif (!staticData.paymentReport) {\n  staticData.paymentReport = { startedAt: new Date().toISOString(), rows: [] };\n}\n\nconst rawInput = $input.first().json || {};\nconst paymentData = rawInput.payment || rawInput;\nconst paymentId = paymentData.payment_id || '';\nconst paymentNumber = paymentData.payment_number || '';\nconst invoiceNumber = paymentData.invoice_number || (paymentData.invoices && paymentData.invoices[0] && paymentData.invoices[0].invoice_number) || '';\nconst customerName = paymentData.customer_name || '';\nconst customerNumber = paymentData.contact_number || '';\nconst referenceNumber = paymentData.reference_number || '';\nconst amount = Number(paymentData.amount || 0);\n\nconst logRow = {\n  paymentId,\n  paymentNumber,\n  invoiceNumber,\n  customerName,\n  customerNumber,\n  referenceNumber,\n  amount,\n  status: 'SKIPPED',\n  category: 'Already Synced',\n  stage: 'Filter',\n  message: `Payment ${paymentNumber || paymentId} was already synced to NetSuite. Skipped.`,\n  technicalDetails: {},\n  date: new Date().toISOString(),\n};\n\nstaticData.paymentReport.rows.push(logRow);\n\nreturn [{ json: logRow }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        288
+      ],
+      "id": "dc917f40-94b3-40cc-b7f8-da6826ba17db",
+      "name": "Log - Already Synced"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "f1b2c3d4-e5f6-7890-abcd-ef1234567891",
+              "leftValue": "={{ $json.invoiceStatus }}",
+              "rightValue": "FULLY_PAID",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3136,
+        560
+      ],
+      "id": "124fd77e-930f-48af-aedb-82fed1d7b3ad",
+      "name": "If Fully Paid"
+    },
+    {
+      "parameters": {
+        "url": "=https://9703568.suitetalk.api.netsuite.com/services/rest/record/v1/customerpayment/eid:{{ $('get_payments_zoho').item.json.payment.payment_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3360,
+        480
+      ],
+      "id": "fda6e4f0-05d1-4d42-97e0-3da88cf5369c",
+      "name": "NetSuite - Check Payment Duplicate",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "CtVxtny9Lo5YlnX5",
+          "name": "Netsuite Credential"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json || {};\nconst originalStatus = $('Check Invoice Status').item.json;\n\n// NetSuite GET responses arrive wrapped as { data: \"<json string>\" } / { body: ... }.\n// Parse every variant so we can read the payment record id.\nlet parsed = raw;\ntry {\n  if (typeof raw.data === 'string') parsed = JSON.parse(raw.data);\n  else if (raw.data && typeof raw.data === 'object') parsed = raw.data;\n  else if (typeof raw.body === 'string') parsed = JSON.parse(raw.body);\n  else if (raw.body && typeof raw.body === 'object') parsed = raw.body;\n} catch (e) {\n  parsed = {};\n}\n\nconst hasError = !!raw.error;\n// A found payment has a record id (or tranId). 404 (not found) comes back as raw.error.\nconst paymentFound = !hasError && (parsed.id != null || parsed.tranId != null);\n\nif (paymentFound) {\n  const payment = $('get_payments_zoho').item.json.payment || {};\n  const zohoPaymentId = payment.payment_id || '';\n  const zohoPaymentNumber = payment.payment_number || '';\n  return [{\n    json: {\n      ...originalStatus,\n      invoiceStatus: 'DUPLICATE',\n      invoiceValid: false,\n      message: 'Payment #' + zohoPaymentNumber + ' (ID: ' + zohoPaymentId + ') was already synced to NetSuite. Skipping as duplicate.',\n    }\n  }];\n} else {\n  return [{\n    json: {\n      ...originalStatus,\n    }\n  }];\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3584,
+        480
+      ],
+      "id": "9f1d9310-4816-4bbe-bd35-f036816391f4",
+      "name": "Resolve Duplicate Status"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fan out: one output item per invoice tagged on the Zoho payment.\nconst payment = $('get_payments_zoho').item.json.payment || {};\nconst invoices = Array.isArray(payment.invoices) ? payment.invoices : [];\n\nif (invoices.length === 0) {\n  // No tagged invoices -> single sentinel item so validation can fail cleanly\n  return [{ json: { invoice_number: null, invoice_id: null, zoho_applied: 0, _noInvoices: true } }];\n}\n\nreturn invoices.map(inv => ({\n  json: {\n    invoice_number: inv.invoice_number,\n    invoice_id: inv.invoice_id,\n    // Zoho field-name variants for the amount applied to THIS invoice\n    zoho_applied: Number(inv.amount_applied ?? inv.applied_amount ?? inv.amount ?? 0),\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        288
+      ],
+      "id": "c64d8641-07e0-4872-9a21-80be550ecf0c",
+      "name": "Expand Payment Invoices"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "get_payments_zoho": {
+      "main": [
+        [
+          {
+            "node": "Wait(1)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Specific Invoice from Zoho Billing": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Replace Me": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Wait(2)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Zoho Invoice Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check if the Customer Exists in Netsuite": {
+      "main": [
+        [
+          {
+            "node": "flat_customer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait(2)": {
+      "main": [
+        [
+          {
+            "node": "Check if the Customer Exists in Netsuite",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait(1)": {
+      "main": [
+        [
+          {
+            "node": "Get Specific Invoice from Zoho Billing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "flat_customer": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Expand Payment Invoices",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Customer Lookup Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Payload to Create Payment in Netsuite": {
+      "main": [
+        [
+          {
+            "node": "Create Payment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Payment": {
+      "main": [
+        [
+          {
+            "node": "Format Error and Branching",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Error and Branching": {
+      "main": [
+        [
+          {
+            "node": "If2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If2": {
+      "main": [
+        [
+          {
+            "node": "Patch_Payment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log - Payment Creation Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items1": {
+      "main": [
+        [
+          {
+            "node": "Prepare NetSuite Parent Report Payload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get a single payment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get a single payment": {
+      "main": [
+        [
+          {
+            "node": "Filter unprocessed payments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter unprocessed payments": {
+      "main": [
+        [
+          {
+            "node": "get_payments_zoho",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log - Already Synced",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log - Already Synced": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Payload to Update Custom Field": {
+      "main": [
+        [
+          {
+            "node": "Update Payment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Payment": {
+      "main": [
+        [
+          {
+            "node": "Log - Payment Sync Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook1": {
+      "main": [
+        [
+          {
+            "node": "Get All Payments1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get All Payments1": {
+      "main": [
+        [
+          {
+            "node": "Break to separate Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Break to separate Items": {
+      "main": [
+        [
+          {
+            "node": "Initialize Payment Report Store",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Patch_Payment": {
+      "main": [
+        [
+          {
+            "node": "Check Patch Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initialize Payment Report Store": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log - Zoho Invoice Error": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log - Payment Creation Failed": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log - Payment Sync Success": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare NetSuite Parent Report Payload": {
+      "main": [
+        [
+          {
+            "node": "NetSuite - Create Automation Report Parent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NetSuite - Create Automation Report Parent": {
+      "main": [
+        [
+          {
+            "node": "NetSuite - Find Automation Report Parent ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log - Customer Lookup Error": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Zoho Invoice Error": {
+      "main": [
+        [
+          {
+            "node": "Log - Zoho Invoice Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Customer Lookup Error": {
+      "main": [
+        [
+          {
+            "node": "Log - Customer Lookup Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NetSuite - Find Automation Report Parent ID": {
+      "main": [
+        [
+          {
+            "node": "Prepare NetSuite Child Report Lines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare NetSuite Child Report Lines": {
+      "main": [
+        [
+          {
+            "node": "NetSuite - Create Automation Report Child Lines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Invoice Status": {
+      "main": [
+        [
+          {
+            "node": "If Invoice Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Invoice Valid": {
+      "main": [
+        [
+          {
+            "node": "Create Payload to Create Payment in Netsuite",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If Fully Paid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log - Invoice Check Failed": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Patch Success": {
+      "main": [
+        [
+          {
+            "node": "If Patch Applied",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Patch Applied": {
+      "main": [
+        [
+          {
+            "node": "Prepare Payload to Update Custom Field",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log - Payment Creation Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Invoice in NetSuite": {
+      "main": [
+        [
+          {
+            "node": "Check Invoice Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Fully Paid": {
+      "main": [
+        [
+          {
+            "node": "NetSuite - Check Payment Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log - Invoice Check Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NetSuite - Check Payment Duplicate": {
+      "main": [
+        [
+          {
+            "node": "Resolve Duplicate Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Duplicate Status": {
+      "main": [
+        [
+          {
+            "node": "Log - Invoice Check Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expand Payment Invoices": {
+      "main": [
+        [
+          {
+            "node": "Check Invoice in NetSuite",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "d0a174a4-73e7-4539-8b56-feafc21b42ca",
+  "meta": {
+    "instanceId": "e219200b32b2f867fa86989095a931635722901d82d3761affbd88ad8afadfcf"
+  },
+  "id": "3WhFpSkbrVXMrFQk",
+  "tags": []
+}

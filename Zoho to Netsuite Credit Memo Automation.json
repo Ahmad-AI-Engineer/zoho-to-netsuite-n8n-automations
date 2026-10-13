@@ -1,0 +1,1841 @@
+{
+  "name": "Zoho to Netsuite Credit Memo Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "31ec9cca-7de4-4290-a02d-1b96fbea9cb0",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "closed",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        -1120,
+        432
+      ],
+      "id": "963f06f6-3989-4d67-a05a-6c025b42131f",
+      "name": "Filter Records",
+      "notes": "Fetch closed/open notes in the requested credit-note date range, including already-synced notes, to detect later refunds."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get input data\nconst inputData = $input.all();\n\n// Array to store all credit notes\nconst allCreditNotes = [];\n\n// Get the date range passed to the webhook (if any)\nlet fromDate = '';\nlet toDate = '';\ntry {\n  const q = $('Webhook1').first().json.query || {};\n  fromDate = q.from_date || '';\n  toDate = q.to_date || '';\n} catch (e) {\n  // No webhook query available (e.g. manual run) -> do not filter by date\n}\n\n// Loop through each input item\nfor (const item of inputData) {\n  const data = item.json;\n  \n  // Check if creditnotes array exists\n  if (data.creditnotes && Array.isArray(data.creditnotes)) {\n    data.creditnotes.forEach(creditNote => {\n      const cnDate = creditNote.date || '';\n\n      // Filter by date range ONLY when the webhook supplied dates.\n      // Dates are 'YYYY-MM-DD' so string comparison is safe.\n      if (fromDate && cnDate < fromDate) return;\n      if (toDate && cnDate > toDate) return;\n\n      allCreditNotes.push({\n        json: creditNote\n      });\n    });\n  }\n}\n\n// Return all credit notes (within range) as separate items\nreturn allCreditNotes;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1568,
+        432
+      ],
+      "id": "53458032-94e2-4942-a1ce-f1fa2214df55",
+      "name": "Separate Objects"
+    },
+    {
+      "parameters": {
+        "url": "=https://9703568.suitetalk.api.netsuite.com/services/rest/record/v1/customer/eid:{{ $json.creditnote.contact_number }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        272
+      ],
+      "id": "fcb87ca7-35b1-4390-a0d7-0fd1abbf472f",
+      "name": "Get Customer Internal ID",
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "CtVxtny9Lo5YlnX5",
+          "name": "Netsuite Credential"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "=https://www.zohoapis.com/billing/v1/creditnotes/{{ $json.creditnote_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "organization_id",
+              "value": "884904251"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-com-zoho-subscriptions-organizationid",
+              "value": "884904251"
+            }
+          ]
+        },
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -896,
+        432
+      ],
+      "id": "cf4b3eb3-e2f1-4290-ac00-bff1e6e457f7",
+      "name": "Get Credit Note Full Detail",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 10000,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "HzwpD51WsSrZyhcT",
+          "name": "Zoho Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  if (item.json.error) {\n    const errorMessage = item.json.error.message || \"\";\n    const match = errorMessage.match(/external ID '([^']+)'/);\n    const contactNumber = match ? match[1] : \"Unknown\";\n\n    results.push({\n      json: {\n        customer_exists: \"no\",\n        contact_number: contactNumber\n      }\n    });\n  } else {\n    const customerData = typeof item.json.data === \"string\"\n      ? JSON.parse(item.json.data)\n      : (item.json.data || item.json);\n\n    results.push({\n      json: {\n        customer_exists: \"yes\",\n        ...customerData\n      }\n    });\n  }\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        272
+      ],
+      "id": "2bae95fb-2aae-46dd-8471-4715c470e442",
+      "name": "Check if Customer Exist"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "38caecd1-d519-4442-8782-1af690f8cf6c",
+              "leftValue": "={{ $json.customer_exists }}",
+              "rightValue": "yes",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        896,
+        272
+      ],
+      "id": "83b1bb1f-a561-4aa6-9e65-a6316cf181b1",
+      "name": "Check Condition"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "2d0295dc-2caa-4e3d-9bd1-67741c38980b",
+              "leftValue": "={{ ($json.cf_synced_to_netsuite_unformatted === true) || (String($json.cf_synced_to_netsuite || '').toLowerCase() === 'true') }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1344,
+        432
+      ],
+      "id": "36e02a9c-360a-4f2e-9c1e-a0d4bfeba882",
+      "name": "Filter Data with no Custom Field"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -224,
+        432
+      ],
+      "id": "0eb472c5-6e92-4d44-a5e9-466456b6fb2d",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "name": "Replace Me",
+      "typeVersion": 1,
+      "position": [
+        3360,
+        320
+      ],
+      "id": "d528b1de-e062-4843-85c8-adc2fe8a15ca"
+    },
+    {
+      "parameters": {
+        "jsCode": "const sourceItems = $('Filter Records').all().map(item => item.json || {});\n\nfunction hasValue(value) {\n  if (Array.isArray(value)) return value.length > 0;\n  if (value === null || value === undefined) return false;\n  return String(value).trim() !== '';\n}\n\nfor (const item of $input.all()) {\n  const fullDetail = item.json || {};\n  const creditNote = fullDetail.creditnote || fullDetail;\n  const creditNoteId = creditNote.creditnote_id || fullDetail.creditnote_id || '';\n  const source = sourceItems.find(sourceItem => sourceItem.creditnote_id === creditNoteId) || {};\n  const fetchedAppliedInvoices = source.applied_invoices;\n\n  if (hasValue(fetchedAppliedInvoices)) {\n    creditNote.applied_invoice_numbers = fetchedAppliedInvoices;\n\n    if (!hasValue(creditNote.applied_invoices)) {\n      creditNote.applied_invoices = fetchedAppliedInvoices;\n    }\n  }\n\n  if (fullDetail.creditnote) {\n    fullDetail.creditnote = creditNote;\n  }\n}\n\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -672,
+        432
+      ],
+      "id": "2fa4fb40-2a06-4a39-86a5-f252cf7e3ecc",
+      "name": "Return Data"
+    },
+    {
+      "parameters": {
+        "jsCode": "const creditnote = $input.first().json.creditnote;\nreturn (creditnote.line_items || creditnote.creditnote_items || []).map(line => ({json:{item_name:line.name},pairedItem:{item:0}}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        672
+      ],
+      "id": "1b70790b-f818-4715-98d7-9bbf51b3bace",
+      "name": "Separate Items"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const parsed = JSON.parse(item.json.data);\n  \n  for (const nsItem of parsed.items) {\n    results.push({\n      json: {\n        id: nsItem.id,\n        itemid: nsItem.itemid,\n        displayname: nsItem.displayname\n      }\n    });\n  }\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        608
+      ],
+      "id": "042d6e53-006a-4dae-8e53-9949d27d62ef",
+      "name": "Flat Data"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1120,
+        192
+      ],
+      "id": "3f4ec6a8-ed83-4191-9d18-a6c95b0ad32b",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loop over input items and add a new field called 'myNewField' to the JSON of each one\nfor (const item of $input.all()) {\n  item.json.myNewField = 1;\n}\n\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        672
+      ],
+      "id": "6185d51f-0a29-45e7-9b9a-ed51697af70d",
+      "name": "Return Credit Data"
+    },
+    {
+      "parameters": {
+        "jsCode": "const mergedItems = $input.all();\nconst creditNote = $('Return Credit Data').first().json.creditnote;\n\n// Extract customer (first item) and NS items (rest)\nconst customer = mergedItems[0].json;\nconst nsItems = mergedItems.slice(1).map(i => i.json);\n\nreturn [\n  {\n    json: {\n      // Credit note info\n      creditnote_id: creditNote.creditnote_id,\n      creditnote_number: creditNote.creditnote_number,\n      date: creditNote.date,\n      contact_number: creditNote.contact_number,\n      customer_name: creditNote.customer_name,\n      total: creditNote.total,\n      memo: creditNote.notes,\n      creditnote_refunds: creditNote.creditnote_refunds || [],\n      total_refund: creditNote.total_refund || 0,\n\n      // Invoices this credit note is applied to\n      applied_invoices: (creditNote.invoices || []).map(inv => ({\n        invoice_id: inv.invoice_id,\n        invoice_number: inv.invoice_number,\n        credited_amount: inv.credited_amount,\n        date: inv.date\n      })),\n\n      // Customer info from NetSuite\n      ns_customer_id: customer.id,\n      ns_subsidiary_id: customer.subsidiary.id,\n      ns_currency_id: customer.currency.id,\n\n      // Line items matched with NS item IDs\n      line_items: (creditNote.line_items || creditNote.creditnote_items || []).map((zohoItem, index) => ({\n        ns_item_id: nsItems[index]?.id || null,\n        name: zohoItem.name,\n        quantity: zohoItem.quantity,\n        rate: zohoItem.rate ?? zohoItem.price,\n        amount: zohoItem.item_total,\n        description: zohoItem.description\n      }))\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        192
+      ],
+      "id": "5a337635-f686-44d6-8403-dd43014707fc",
+      "name": "Merge the Processed Data",
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nconst date = new Date(data.date);\nconst memo = `Credit Memo for ${date.toLocaleString('default', { month: 'long' })} ${date.getFullYear()}`;\n\nconst output = [\n  {\n    json: {\n      externalId: data.creditnote_number,\n      tranId: data.creditnote_number,\n      entity: {\n        externalId: data.contact_number\n      },\n      subsidiary: {\n        id: \"1\"\n      },\n      location: \"525\",\n      tranDate: data.date,\n      memo: memo,\n      item: {\n        items: data.line_items.map(line => ({\n          item: {\n            id: line.ns_item_id\n          },\n          quantity: line.quantity,\n          rate: line.rate,\n          amount: line.amount\n        }))\n      },\n      apply: {\n        items: data.applied_invoices.map(inv => ({\n          doc: {\n            externalId: inv.invoice_number\n          },\n          apply: true,\n          amount: inv.credited_amount\n        }))\n      }\n    }\n  }\n];\nif (!data.applied_invoices.length) delete output[0].json.apply;\nif ((data.creditnote_refunds || []).length || Number(data.total_refund || 0)>0) output[0].json.autoApply=false;\nreturn output;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        128
+      ],
+      "id": "c07c4171-d4fc-4f7d-be28-1a633a008f3e",
+      "name": "Return Payload"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://9703568.suitetalk.api.netsuite.com/services/rest/record/v1/creditmemo",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        2016,
+        128
+      ],
+      "id": "1c1e59eb-9405-4826-91ca-58a8b7f56e11",
+      "name": "Create Credit Note",
+      "alwaysOutputData": true,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "CtVxtny9Lo5YlnX5",
+          "name": "Netsuite Credential"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "22e2af87-a76c-4ef1-b0dc-ed5db121d1a7",
+              "leftValue": "={{ $json.memo_created }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2688,
+        128
+      ],
+      "id": "68e63ed2-138c-4427-a341-3719e6450a84",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction readResponse(raw) {\n  let body = raw.body ?? raw.data ?? raw;\n  if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {message:body}; } }\n  return {status:Number(raw.statusCode || raw.error?.statusCode || raw.error?.httpCode || 0), body:body || {}, error:raw.error};\n}\nfunction errorText(r) { return String(r.body?.['o:errorDetails']?.map(e => e.detail).join('; ') || r.body?.message || r.error?.message || r.error || ('HTTP ' + r.status)); }\nfunction result(json) { return [{json,pairedItem:{item:0}}]; }\n\nconst r=readResponse($input.first().json);\nreturn result({memo_created:!r.error && r.status >= 200 && r.status < 300,error:errorText(r)});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        128
+      ],
+      "id": "d1b8348f-b913-486a-bce7-69d7052bbce4",
+      "name": "Check Status"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [\n  {\n    json: {\n      creditnote_id: $('Return Credit Data').first().json.creditnote.creditnote_id\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2912,
+        48
+      ],
+      "id": "b1e02232-fa3a-4674-b9d4-9ea4a69478c4",
+      "name": "Return Credit Number"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://www.zohoapis.com/billing/v1/creditnotes/{{ $json.creditnote_id }}/customfields?organization_id=884904251",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"custom_fields\": [\n    {\n      \"api_name\": \"cf_synced_to_netsuite\",\n      \"value\": true\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        3136,
+        48
+      ],
+      "id": "a95aa449-7e42-4423-80ee-973cf81428d1",
+      "name": "Update Custom Field",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "HzwpD51WsSrZyhcT",
+          "name": "Zoho Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "b55e5b98-8272-4788-8c44-6819ce546f3e",
+              "leftValue": "={{ $json.creditnote_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1568,
+        192
+      ],
+      "id": "e272290f-a510-4056-9c27-eaae8e0116c8",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "7f382edb-fb6d-4744-8ffe-beefdbaf1f40",
+              "leftValue": "={{ $json.data }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        672,
+        672
+      ],
+      "id": "b9ec916d-50f5-4c89-8ab4-cd8e7a331e56",
+      "name": "Conditional Logic"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://9703568.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "transient"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"q\": \"SELECT id, itemid, displayname FROM item WHERE itemid = '{{ $json.item_name }}'\"\n}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        448,
+        672
+      ],
+      "id": "3743ed6e-b8b8-48ab-aecc-54a7862e87a4",
+      "name": "Check if Item Exists",
+      "executeOnce": false,
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "CtVxtny9Lo5YlnX5",
+          "name": "Netsuite Credential"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        3584,
+        736
+      ],
+      "id": "72e964ed-a362-4959-a931-3f2bd46529eb",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nstaticData.creditMemoReport = {\n  startedAt: new Date().toISOString(),\n  rows: [],\n};\n\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -448,
+        432
+      ],
+      "id": "2b587a3e-4028-4e53-bf85-04166c2a3e76",
+      "name": "Initialize Report Store"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nif (!staticData.creditMemoReport) {\n  staticData.creditMemoReport = {\n    startedAt: new Date().toISOString(),\n    rows: [],\n  };\n}\n\nconst statusData = $input.first().json || {};\nconst creditData = $('Return Credit Data').first().json.creditnote || {};\n\nconst invoiceNumber =\n  creditData.creditnote_number ||\n  creditData.creditnote_id ||\n  'No Credit Note';\n\nconst customerName =\n  creditData.customer_name ||\n  '';\n\nconst amount =\n  Number(creditData.total || 0);\n\nfunction getInvoiceNumbers(creditData) {\n  const invoiceNumbers = [];\n\n  for (const invoice of creditData.invoices || []) {\n    const number = invoice.invoice_number || invoice.invoiceNumber || invoice.number;\n    if (number) {\n      invoiceNumbers.push(String(number).trim());\n    }\n  }\n\n  const appliedInvoices = creditData.applied_invoices || creditData.applied_invoice_numbers;\n  if (Array.isArray(appliedInvoices)) {\n    for (const invoice of appliedInvoices) {\n      const number = typeof invoice === 'string'\n        ? invoice\n        : invoice.invoice_number || invoice.invoiceNumber || invoice.number;\n      if (number) {\n        invoiceNumbers.push(String(number).trim());\n      }\n    }\n  } else if (appliedInvoices) {\n    for (const number of String(appliedInvoices).split(',')) {\n      if (number.trim()) {\n        invoiceNumbers.push(number.trim());\n      }\n    }\n  }\n\n  return [...new Set(invoiceNumbers)].join(', ');\n}\n\nconst invoiceNumbers = getInvoiceNumbers(creditData);\n\nfunction parseNetSuiteError(errorValue) {\n  const raw = typeof errorValue === 'object'\n    ? JSON.stringify(errorValue)\n    : String(errorValue || '');\n\n  let text = raw.replace(/^\\d+\\s*-\\s*/, '').trim();\n\n  for (let i = 0; i < 3; i++) {\n    if (text.startsWith('\"') && text.endsWith('\"')) {\n      try {\n        text = JSON.parse(text);\n      } catch (error) {\n        text = text.slice(1, -1).replace(/\\\\\"/g, '\"');\n      }\n    }\n  }\n\n  let parsed = null;\n  try {\n    parsed = JSON.parse(text);\n  } catch (error) {\n    parsed = null;\n  }\n\n  const detailObj = parsed?.['o:errorDetails']?.[0] || {};\n\n  const errorCode =\n    detailObj?.['o:errorCode'] ||\n    parsed?.['o:errorCode'] ||\n    '';\n\n  const detail =\n    detailObj?.detail ||\n    parsed?.detail ||\n    parsed?.message ||\n    raw ||\n    'Unknown NetSuite error';\n\n  const lowerText = `${raw} ${detail} ${errorCode}`.toLowerCase();\n\n  const externalIdMatch =\n    detail.match(/external ID\\s+([A-Za-z0-9_-]+)/i) ||\n    raw.match(/external ID\\s+([A-Za-z0-9_-]+)/i);\n\n  const externalId = externalIdMatch ? externalIdMatch[1] : '';\n\n  return {\n    raw,\n    errorCode,\n    detail,\n    lowerText,\n    externalId,\n  };\n}\n\nif (statusData.memo_created === true) {\n  staticData.creditMemoReport.rows.push({\n    status: 'SUCCESS',\n    category: 'Credit Memos Created',\n    invoiceNumber,\n    invoiceNumbers,\n    customerName,\n    amount,\n    stage: 'Credit Memo Created',\n    message: `Credit memo created successfully for credit note ${invoiceNumber}.`,\n  });\n} else {\n  const errorInfo = parseNetSuiteError(statusData.error);\n\n  let category = 'Credit Memo Creation Failed';\n  let stage = 'Credit Memo Creation';\n  let message = `Credit memo could not be created or applied for credit note ${invoiceNumber}. Please review the NetSuite invoice/application setup.`;\n\n  if (\n    errorInfo.lowerText.includes('already exists') ||\n    errorInfo.lowerText.includes('duplicate')\n  ) {\n    category = 'Duplicate Credit Memo Skipped';\n    stage = 'Duplicate Check';\n    message = `Credit memo already exists for credit note ${invoiceNumber}. Skipped to avoid duplicate.`;\n  } else if (\n    errorInfo.errorCode === 'NONEXISTENT_EXTERNAL_ID' ||\n    errorInfo.lowerText.includes('does not exist') ||\n    errorInfo.lowerText.includes('matching invoice was not found') ||\n    errorInfo.lowerText.includes('external id')\n  ) {\n    category = 'Invoice Not Found in NetSuite';\n    stage = 'Original Invoice Lookup';\n    message = errorInfo.externalId\n      ? `Credit note ${invoiceNumber} could not be applied because matching NetSuite invoice external ID ${errorInfo.externalId} was not found.`\n      : `Credit note ${invoiceNumber} could not be applied because matching invoice was not found in NetSuite.`;\n  } else if (\n    errorInfo.errorCode === 'USER_ERROR' ||\n    errorInfo.lowerText.includes('invalid sublist') ||\n    errorInfo.lowerText.includes('line item operation')\n  ) {\n    category = 'Credit Memo Creation Failed';\n    stage = 'Credit Memo Creation';\n    message = `Credit memo could not be created or applied for credit note ${invoiceNumber}. Please review the NetSuite invoice/application setup.`;\n  }\n\n  staticData.creditMemoReport.rows.push({\n    status: 'FAILED',\n    category,\n    invoiceNumber,\n    invoiceNumbers,\n    customerName,\n    amount,\n    stage,\n    message,\n  });\n}\n\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2464,
+        128
+      ],
+      "id": "3943b9e9-7035-431e-b653-c4806d38b701",
+      "name": "Log Credit Memo Result"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nif (!staticData.creditMemoReport) {\n  staticData.creditMemoReport = {\n    startedAt: new Date().toISOString(),\n    rows: [],\n  };\n}\n\nconst creditData = $('Return Credit Data').first().json.creditnote || {};\nconst customerCheck = $input.first().json || {};\n\nconst creditNoteNumber =\n  creditData.creditnote_number ||\n  creditData.creditnote_id ||\n  'No Credit Note';\n\nconst customerName =\n  creditData.customer_name ||\n  '';\n\nconst contactNumber =\n  creditData.contact_number ||\n  customerCheck.contact_number ||\n  'Unknown Customer';\n\nconst amount =\n  Number(creditData.total || 0);\n\nfunction getInvoiceNumbers(creditData) {\n  const invoiceNumbers = [];\n\n  for (const invoice of creditData.invoices || []) {\n    const number = invoice.invoice_number || invoice.invoiceNumber || invoice.number;\n    if (number) {\n      invoiceNumbers.push(String(number).trim());\n    }\n  }\n\n  const appliedInvoices = creditData.applied_invoices || creditData.applied_invoice_numbers;\n  if (Array.isArray(appliedInvoices)) {\n    for (const invoice of appliedInvoices) {\n      const number = typeof invoice === 'string'\n        ? invoice\n        : invoice.invoice_number || invoice.invoiceNumber || invoice.number;\n      if (number) {\n        invoiceNumbers.push(String(number).trim());\n      }\n    }\n  } else if (appliedInvoices) {\n    for (const number of String(appliedInvoices).split(',')) {\n      if (number.trim()) {\n        invoiceNumbers.push(number.trim());\n      }\n    }\n  }\n\n  return [...new Set(invoiceNumbers)].join(', ');\n}\n\nconst invoiceNumbers = getInvoiceNumbers(creditData);\n\nstaticData.creditMemoReport.rows.push({\n  status: 'FAILED',\n  category: 'Customer Not Found in NetSuite',\n  invoiceNumber: creditNoteNumber,\n  invoiceNumbers,\n  customerName,\n  amount,\n  stage: 'Customer Lookup',\n  message: `Customer ${contactNumber} was not found in NetSuite for credit note ${creditNoteNumber}.`,\n});\n\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3136,
+        464
+      ],
+      "id": "35d3e3d7-451f-41b8-a3f7-378c3d034555",
+      "name": "Log Missing Customer"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nif (!staticData.creditMemoReport) {\n  staticData.creditMemoReport = {\n    startedAt: new Date().toISOString(),\n    rows: [],\n  };\n}\n\nconst creditData = $('Return Credit Data').first().json.creditnote || {};\nconst itemData = $('Separate Items').first().json || {};\n\nconst creditNoteNumber =\n  creditData.creditnote_number ||\n  creditData.creditnote_id ||\n  'No Credit Note';\n\nconst customerName =\n  creditData.customer_name ||\n  '';\n\nconst itemName =\n  itemData.item_name ||\n  'Unknown Item';\n\nconst amount =\n  Number(creditData.total || 0);\n\nfunction getInvoiceNumbers(creditData) {\n  const invoiceNumbers = [];\n\n  for (const invoice of creditData.invoices || []) {\n    const number = invoice.invoice_number || invoice.invoiceNumber || invoice.number;\n    if (number) {\n      invoiceNumbers.push(String(number).trim());\n    }\n  }\n\n  const appliedInvoices = creditData.applied_invoices || creditData.applied_invoice_numbers;\n  if (Array.isArray(appliedInvoices)) {\n    for (const invoice of appliedInvoices) {\n      const number = typeof invoice === 'string'\n        ? invoice\n        : invoice.invoice_number || invoice.invoiceNumber || invoice.number;\n      if (number) {\n        invoiceNumbers.push(String(number).trim());\n      }\n    }\n  } else if (appliedInvoices) {\n    for (const number of String(appliedInvoices).split(',')) {\n      if (number.trim()) {\n        invoiceNumbers.push(number.trim());\n      }\n    }\n  }\n\n  return [...new Set(invoiceNumbers)].join(', ');\n}\n\nconst invoiceNumbers = getInvoiceNumbers(creditData);\n\nstaticData.creditMemoReport.rows.push({\n  status: 'FAILED',\n  category: 'Item Not Found in NetSuite',\n  invoiceNumber: creditNoteNumber,\n  invoiceNumbers,\n  customerName,\n  amount,\n  stage: 'Item Lookup',\n  message: `Item \"${itemName}\" was not found in NetSuite for credit note ${creditNoteNumber}.`,\n});\n\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3136,
+        752
+      ],
+      "id": "c52e1f60-c88b-4f58-ae98-1c70d46f93eb",
+      "name": "Log Missing Item"
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\n\nconst report = staticData.creditMemoReport || {\n  startedAt: new Date().toISOString(),\n  rows: [],\n};\n\nconst rows = report.rows || [];\nconst startedAt = report.startedAt || new Date().toISOString();\nconst completedAt = new Date().toISOString();\n\nconst successRows = rows.filter(row =>\n  row.category === 'Credit Memos Created'\n);\n\nconst duplicateRows = rows.filter(row =>\n  row.category === 'Duplicate Credit Memo Skipped'\n);\n\nconst missingRows = rows.filter(row =>\n  row.category === 'Invoice Not Found in NetSuite' ||\n  row.category === 'Customer Not Found in NetSuite' ||\n  row.category === 'Item Not Found in NetSuite'\n);\n\nconst failedRows = rows.filter(row =>\n  row.status === 'FAILED' &&\n  row.category !== 'Duplicate Credit Memo Skipped' &&\n  row.category !== 'Invoice Not Found in NetSuite' &&\n  row.category !== 'Customer Not Found in NetSuite' &&\n  row.category !== 'Item Not Found in NetSuite'\n);\n\nreturn [\n  {\n    json: {\n      workflowStatus: rows.some(row => row.status === 'FAILED')\n        ? 'Completed with Exceptions'\n        : 'Completed',\n\n      startedAt,\n      completedAt,\n\n      totalReportedItems: rows.length,\n      successCount: successRows.length,\n      duplicateCount: duplicateRows.length,\n      missingCount: missingRows.length,\n      failedCount: failedRows.length,\n      noEligibleCount: 0,\n      refundCreatedCount: rows.filter(r=>r.category==='Customer Refund Created').length,\n      refundExistingCount: rows.filter(r=>r.category==='Customer Refund Already Exists').length,\n      refundFailedCount: rows.filter(r=>r.category==='Customer Refund Failed').length,\n\n      reportRows: rows,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "ec805de1-b027-457d-b5ce-47e594334c1b",
+      "name": "Build Consolidated Report Data"
+    },
+    {
+      "parameters": {
+        "jsCode": "const summary = $input.first().json || {};\n\nconst rows = summary.reportRows || [];\nconst startedAt = summary.startedAt || new Date().toISOString();\nconst completedAt = summary.completedAt || new Date().toISOString();\n\nconst safeTimestamp = new Date().toISOString().replace(/[-:.TZ]/g, '');\nconst parentExternalId = `CREDIT_NOTE_AUTOMATION_REPORT_${safeTimestamp}_${Math.floor(Math.random() * 100000)}`;\n\nconst summaryMessage =\n  `Credit Note Automation completed. ` +\n  `Total: ${summary.totalReportedItems || rows.length}, ` +\n  `Created: ${summary.successCount || 0}, ` +\n  `Missing: ${summary.missingCount || 0}, ` +\n  `Failed: ${summary.failedCount || 0}. ` +\n  `Refunds created: ${summary.refundCreatedCount || 0}, already present: ${summary.refundExistingCount || 0}, failed: ${summary.refundFailedCount || 0}.`;\n\nconst parentPayload = {\n  externalId: parentExternalId,\n  name: `Credit Note Automation Report - ${new Date().toISOString()}`,\n\n  custrecordcmar_status: summary.workflowStatus || 'Executed',\n  custrecordcmar_started: startedAt,\n  custrecordcmar_completed: completedAt,\n\n  custrecordcmar_total: Number(summary.totalReportedItems || rows.length || 0),\n  custrecordcmar_created: Number(summary.successCount || 0),\n  custrecordcmar_skipped: Number(summary.duplicateCount || 0),\n  custrecordcmar_missing: Number(summary.missingCount || 0),\n  custrecordcmar_failed: Number(summary.failedCount || 0),\n\n  custrecordcmar_summary: summaryMessage,\n};\n\nreturn [\n  {\n    json: {\n      parentPayload,\n      parentExternalId,\n      reportRows: rows,\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "2bb4ba2a-7279-4a97-b619-8ea4be8eb212",
+      "name": "Prepare NetSuite Parent Report Payload"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://9703568.suitetalk.api.netsuite.com/services/rest/record/v1/customrecord_cm_automation_report",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.parentPayload) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        448,
+        0
+      ],
+      "id": "eedec58f-12d4-4ab3-9753-760bb6e4c072",
+      "name": "NetSuite - Create Automation Report Parent",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "CtVxtny9Lo5YlnX5",
+          "name": "Netsuite Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://9703568.suitetalk.api.netsuite.com/services/rest/query/v1/suiteql",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Prefer",
+              "value": "transient"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ \"SELECT id FROM customrecord_cm_automation_report WHERE externalid = '\" + $('Prepare NetSuite Parent Report Payload').first().json.parentExternalId + \"'\" }}"
+            }
+          ]
+        },
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        672,
+        0
+      ],
+      "id": "ff48a30d-c3c2-4103-b380-1fda650bc8f9",
+      "name": "NetSuite - Find Automation Report Parent ID",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "CtVxtny9Lo5YlnX5",
+          "name": "Netsuite Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const lookupRaw = $input.first().json || {};\n\nlet lookupResponse = lookupRaw;\n\nif (typeof lookupRaw.data === 'string') {\n  try {\n    lookupResponse = JSON.parse(lookupRaw.data);\n  } catch (error) {\n    throw new Error('Could not parse SuiteQL lookup response data: ' + error.message);\n  }\n} else if (lookupRaw.data && typeof lookupRaw.data === 'object') {\n  lookupResponse = lookupRaw.data;\n}\n\nconst items =\n  lookupResponse.items ||\n  lookupResponse.body?.items ||\n  lookupResponse.data?.items ||\n  lookupRaw.items ||\n  [];\n\nconst parentId =\n  items?.[0]?.id ||\n  items?.[0]?.ID ||\n  lookupResponse.id ||\n  lookupRaw.id ||\n  lookupRaw.body?.id;\n\nif (!parentId) {\n  throw new Error(\n    'Parent NetSuite report ID was not found from SuiteQL lookup. Actual input was: ' +\n    JSON.stringify(lookupRaw)\n  );\n}\n\nconst parentData = $('Prepare NetSuite Parent Report Payload').first().json || {};\nconst allReportRows = parentData.reportRows || [];\n\nfunction cleanText(value, maxLength = 300) {\n  if (value === null || value === undefined) return '';\n  const text = String(value);\n  return text.length > maxLength ? text.slice(0, maxLength) : text;\n}\n\n// Do not create child record for successful rows.\n// Parent summary will still show created count.\nconst reportRows = allReportRows.filter(row => row.category !== 'Credit Memos Created');\n\nreturn reportRows.map(row => {\n  const category = row.category || 'Other';\n  const creditNoteNumber = row.invoiceNumber || 'No Credit Note';\n  const customerName = row.customerName || '';\n  const stage = row.stage || 'Workflow Processing';\n  const message = row.message || '';\n  const invoiceNumbers = row.invoiceNumbers || '';\n\n  return {\n    json: {\n      childPayload: {\n        name: cleanText(`${creditNoteNumber} - ${category}`, 80),\n\n        custrecordcmal_report: {\n          id: String(parentId),\n        },\n        custrecordcmal_category: cleanText(category, 300),\n        custrecord157: cleanText(invoiceNumbers, 300),\n        custrecordcmal_invoice: cleanText(creditNoteNumber, 300),\n        custrecordcmal_customer: cleanText(customerName, 300),\n        custrecordcmal_amount: Number(row.amount || 0),\n        custrecordcmal_stage: cleanText(stage, 300),\n        custrecordcmal_message: cleanText(message, 300),\n      },\n      parentId: String(parentId),\n    },\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        0
+      ],
+      "id": "f4e195ee-7a0b-4608-a6f7-75b1f03bef02",
+      "name": "Prepare NetSuite Child Report Lines"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://9703568.suitetalk.api.netsuite.com/services/rest/record/v1/customrecordcm_automation_line",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.childPayload) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1120,
+        0
+      ],
+      "id": "7f1a4e49-b26a-4e8b-aef0-9a7509979f41",
+      "name": "NetSuite - Create Automation Report Child Lines",
+      "retryOnFail": true,
+      "waitBetweenTries": 2000,
+      "maxTries": 5,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "CtVxtny9Lo5YlnX5",
+          "name": "Netsuite Credential"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://www.zohoapis.com/billing/v1/creditnotes?organization_id=884904251",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "date_start",
+              "value": "={{ $json.query.from_date }}"
+            },
+            {
+              "name": "date_end",
+              "value": "={{ $json.query.to_date }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-com-zoho-subscriptions-organizationid",
+              "value": "884904251"
+            }
+          ]
+        },
+        "options": {
+          "pagination": {
+            "pagination": {
+              "parameters": {
+                "parameters": [
+                  {
+                    "name": "page",
+                    "value": "={{ $pageCount + 1 }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.page_context.has_more_page }}",
+              "requestInterval": 200
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1792,
+        432
+      ],
+      "id": "9101fc14-0507-4a65-b1f9-8642a89e22cc",
+      "name": "HTTP Request",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "HzwpD51WsSrZyhcT",
+          "name": "Zoho Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "path": "58e7e12e-26e4-4d2b-b5df-830778938b08",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -2016,
+        432
+      ],
+      "id": "a2f5aaa7-10e1-4455-bd0e-c879245b96dd",
+      "name": "Webhook1",
+      "webhookId": "58e7e12e-26e4-4d2b-b5df-830778938b08"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "refund-gate-0001",
+              "leftValue": "={{ ($('Return Credit Data').first().json.creditnote.creditnote_refunds ?? $('Return Credit Data').first().json.creditnote.refunds ?? []).length > 0 || Number($('Return Credit Data').first().json.creditnote.total_refund ?? $('Return Credit Data').first().json.creditnote.total_refunded_amount ?? $('Return Credit Data').first().json.creditnote.refunded_amount ?? 0) > 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3360,
+        1100
+      ],
+      "id": "24556648-af20-49d1-885d-1769c792cb14",
+      "name": "Has Credit Note Refund?",
+      "notes": "True when the Zoho credit note carries a refund (creditnote_refunds / total_refund). False goes straight to the end, so invoice-only notes behave exactly as before.",
+      "notesInFlow": true
+    },
+    {
+      "id": "6b02f1bc-06fb-40de-bf19-c80fbd9c570a",
+      "name": "Refund Configuration",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3584,
+        1100
+      ],
+      "parameters": {
+        "jsCode": "// Refund settings. Edit these four values if the NetSuite account changes.\nreturn [{\n  json: {\n    bankAccountId: '234',        // 10210 Chase Bank 1316-C\n    refundPrefix: 'Refund-',     // document number = Refund-<credit note number>\n    defaultLocationId: '525',    // same location the credit memo uses\n    organizationId: '884904251', // Zoho production organization\n  },\n  pairedItem: { item: 0 },\n}];"
+      },
+      "notes": "Bank 234 = 10210 Chase Bank 1316-C. Refund Method is intentionally not sent. Zoho production organization 884904251.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://9703568.suitetalk.api.netsuite.com/services/rest/record/v1/creditmemo/eid:{{ encodeURIComponent($('Return Credit Data').first().json.creditnote.creditnote_number) }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        3808,
+        1100
+      ],
+      "id": "57a22d12-2f90-49f8-8daa-b6c617776a4c",
+      "name": "Get Credit Memo for Refund",
+      "alwaysOutputData": true,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "CtVxtny9Lo5YlnX5",
+          "name": "Netsuite Credential"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "notes": "Reads back the credit memo just created, by external ID, to get its internal ID, customer, currency, subsidiary and remaining balance.",
+      "notesInFlow": true
+    },
+    {
+      "id": "027e572a-4ab3-4026-9c0b-8caae3b18066",
+      "name": "Prepare Credit Note Refund",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4032,
+        1100
+      ],
+      "parameters": {
+        "jsCode": "// --- shared helpers -------------------------------------------------\nfunction readResponse(raw) {\n  raw = raw || {};\n  let body = raw.body ?? raw.data ?? raw;\n  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = { message: body }; } }\n  const status = Number(raw.statusCode || raw.error?.statusCode || raw.error?.httpCode || 0);\n  return { status, body: body || {}, error: raw.error, headers: raw.headers || {} };\n}\nfunction errorText(r) {\n  const details = r.body?.['o:errorDetails'];\n  if (Array.isArray(details) && details.length) return details.map(d => d.detail || d.message).join('; ');\n  return String(r.body?.detail || r.body?.message || r.error?.message || r.error || ('HTTP ' + r.status));\n}\nfunction result(json) { return [{ json, pairedItem: { item: 0 } }]; }\nfunction num(v) { const n = Number(v); return Number.isFinite(n) ? n : null; }\nfunction reportStore() {\n  const store = $getWorkflowStaticData('global');\n  if (!store.creditMemoReport) store.creditMemoReport = { startedAt: new Date().toISOString(), rows: [] };\n  return store.creditMemoReport;\n}\n// --------------------------------------------------------------------\n\nconst cn = $('Return Credit Data').first().json.creditnote || {};\nconst cfg = $('Refund Configuration').first().json;\nconst r = readResponse($input.first().json);\n\ntry {\n  if (r.error || r.status < 200 || r.status >= 300 || !r.body.id) {\n    throw new Error('The NetSuite credit memo for ' + cn.creditnote_number + ' could not be read back: ' + errorText(r));\n  }\n  const cm = r.body;\n  if (!cm.entity || !cm.entity.id) throw new Error('Credit memo ' + cn.creditnote_number + ' has no customer on it.');\n\n  // Zoho returns the refunds made against the credit note on the note itself.\n  // Accept every field name Zoho Billing has used for it.\n  const refunds = cn.creditnote_refunds || cn.refunds || [];\n  const lineTotal = refunds.reduce((sum, ref) =>\n    sum + (num(ref.amount_fcy) ?? num(ref.amount) ?? num(ref.amount_bcy) ?? 0), 0);\n  const headerTotal = num(cn.total_refund) ?? num(cn.total_refunded_amount) ?? num(cn.refunded_amount) ?? 0;\n  const amount = Number((lineTotal > 0 ? lineTotal : headerTotal).toFixed(2));\n  if (!(amount > 0)) throw new Error('Credit note ' + cn.creditnote_number + ' has no refunded amount to post.');\n\n  // Never refund more credit than the memo still holds.\n  const remaining = num(cm.amountRemaining) ?? num(cm.unapplied);\n  if (remaining !== null && amount > remaining + 0.005) {\n    throw new Error('A refund of ' + amount + ' exceeds the ' + remaining + ' still unapplied on credit memo ' + cn.creditnote_number + '.');\n  }\n\n  const first = refunds[0] || {};\n  const zohoRefundId = String(first.creditnote_refund_id || first.refund_id || '');\n  const refundDate = /^\\d{4}-\\d{2}-\\d{2}$/.test(String(first.date || ''))\n    ? String(first.date)\n    : String(cn.date || '').slice(0, 10);\n\n  const payload = {\n    externalId: 'REFUND-' + cn.creditnote_number,\n    tranId: String(cfg.refundPrefix) + cn.creditnote_number,\n    customer: { id: String(cm.entity.id) },\n    account: { id: String(cfg.bankAccountId) },\n    tranDate: refundDate,\n    memo: 'Zoho refund on credit note ' + cn.creditnote_number + (zohoRefundId ? ' (Zoho refund ' + zohoRefundId + ')' : ''),\n    // Tags the refund to the credit memo this run just created.\n    apply: { items: [{ doc: { id: String(cm.id) }, apply: true, amount }] },\n  };\n  if (cm.currency && cm.currency.id) payload.currency = { id: String(cm.currency.id) };\n  if (cm.subsidiary && cm.subsidiary.id) payload.subsidiary = { id: String(cm.subsidiary.id) };\n  const locationId = (cm.location && cm.location.id) || cfg.defaultLocationId;\n  if (locationId) payload.location = { id: String(locationId) };\n\n  return result({\n    refund_ready: true,\n    refund_payload: payload,\n    refund_amount: amount,\n    refund_number: payload.tranId,\n    creditmemo_id: String(cm.id),\n    creditmemo_balance: remaining,\n    creditnote_id: cn.creditnote_id,\n    creditnote_number: cn.creditnote_number,\n    zoho_refund_id: zohoRefundId,\n  });\n} catch (e) {\n  return result({\n    refund_ready: false,\n    refund_amount: 0,\n    creditnote_number: cn.creditnote_number,\n    error: e.message,\n  });\n}"
+      },
+      "notes": "Builds the NetSuite Customer Refund body: document number Refund-<credit note number>, the Zoho refund amount and date, and an apply line tagging the refund to the credit memo.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "refund-ready-0001",
+              "leftValue": "={{ $json.refund_ready === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        4256,
+        1100
+      ],
+      "id": "930db6d8-d8ec-47c0-bc71-cf8db54113b8",
+      "name": "Refund Data Valid?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://9703568.suitetalk.api.netsuite.com/services/rest/record/v1/customerrefund",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.refund_payload) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        4480,
+        1100
+      ],
+      "id": "bca25920-add8-4795-a805-4eb3d8c7a5e6",
+      "name": "Create Customer Refund",
+      "alwaysOutputData": true,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "CtVxtny9Lo5YlnX5",
+          "name": "Netsuite Credential"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "notes": "Creates the Customer Refund and applies it to the credit memo in one call. External ID REFUND-<credit note number> stops a rerun from posting it twice.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://9703568.suitetalk.api.netsuite.com/services/rest/record/v1/customerrefund/eid:REFUND-{{ encodeURIComponent($('Return Credit Data').first().json.creditnote.creditnote_number) }}?expandSubResources=true",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        4704,
+        1100
+      ],
+      "id": "d187a7c1-d963-4b77-b2fc-7fd3175f65be",
+      "name": "Read Customer Refund After Creation",
+      "alwaysOutputData": true,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "CtVxtny9Lo5YlnX5",
+          "name": "Netsuite Credential"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "notes": "Reads the refund back to capture its NetSuite ID, the document number NetSuite actually assigned, and the credit memo it is applied to.",
+      "notesInFlow": true
+    },
+    {
+      "id": "16647fac-cd6e-4efb-aebc-85ecba0e474e",
+      "name": "Verify Customer Refund",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4928,
+        1100
+      ],
+      "parameters": {
+        "jsCode": "// --- shared helpers -------------------------------------------------\nfunction readResponse(raw) {\n  raw = raw || {};\n  let body = raw.body ?? raw.data ?? raw;\n  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = { message: body }; } }\n  const status = Number(raw.statusCode || raw.error?.statusCode || raw.error?.httpCode || 0);\n  return { status, body: body || {}, error: raw.error, headers: raw.headers || {} };\n}\nfunction errorText(r) {\n  const details = r.body?.['o:errorDetails'];\n  if (Array.isArray(details) && details.length) return details.map(d => d.detail || d.message).join('; ');\n  return String(r.body?.detail || r.body?.message || r.error?.message || r.error || ('HTTP ' + r.status));\n}\nfunction result(json) { return [{ json, pairedItem: { item: 0 } }]; }\nfunction num(v) { const n = Number(v); return Number.isFinite(n) ? n : null; }\nfunction reportStore() {\n  const store = $getWorkflowStaticData('global');\n  if (!store.creditMemoReport) store.creditMemoReport = { startedAt: new Date().toISOString(), rows: [] };\n  return store.creditMemoReport;\n}\n// --------------------------------------------------------------------\n\nconst data = $('Prepare Credit Note Refund').first().json;\nconst postedRaw = $('Create Customer Refund').first().json || {};\nconst posted = readResponse(postedRaw);\nconst readBack = readResponse($input.first().json);\n\nconst postMessage = errorText(posted);\nconst postedOk = !posted.error && posted.status >= 200 && posted.status < 300;\n// A rerun hits the same external ID; NetSuite reports that as a duplicate.\nconst duplicate = !postedOk && /already exist|duplicate/i.test(postMessage);\n\nif (!postedOk && !duplicate) {\n  return result({ ...data, refund_complete: false, error: 'NetSuite rejected the customer refund: ' + postMessage });\n}\n\nconst location = String(postedRaw.headers?.location || postedRaw.headers?.Location || '');\nconst idFromLocation = (location.match(/(\\d+)\\s*$/) || [])[1] || '';\nconst refundId = String(readBack.body?.id || posted.body?.id || idFromLocation || '');\n\nif (!refundId) {\n  return result({ ...data, refund_complete: false, error: (duplicate\n    ? 'A customer refund with external ID ' + data.refund_payload.externalId + ' already exists but could not be read back: '\n    : 'NetSuite accepted the refund but it could not be read back: ') + errorText(readBack) });\n}\n\nconst expectedTranId = String(data.refund_payload.tranId || '');\nconst actualTranId = readBack.body?.tranId ? String(readBack.body.tranId) : '';\nconst appliedLines = (readBack.body?.apply?.items || []).filter(line => line.apply === true);\nconst appliedToMemo = appliedLines.some(line => String(line.doc?.id ?? line.doc) === String(data.creditmemo_id));\n\nif (appliedLines.length > 0 && !appliedToMemo) {\n  return result({ ...data, refund_complete: false, refund_id: refundId,\n    error: 'Customer refund ' + (actualTranId || expectedTranId) + ' (NetSuite ID ' + refundId +\n      ') was created but is not applied to credit memo ' + data.creditnote_number + '.' });\n}\n\nconst notes = [];\nconst readBackOk = !readBack.error && readBack.status >= 200 && readBack.status < 300 && !!readBack.body?.id;\nif (!readBackOk) {\n  notes.push('The refund was accepted by NetSuite but could not be read back, so its document number and credit memo application are unconfirmed: ' + errorText(readBack));\n}\nif (actualTranId && expectedTranId && actualTranId !== expectedTranId) {\n  notes.push('NetSuite assigned document number ' + actualTranId + ' instead of ' + expectedTranId +\n    '; tick \"Allow Override\" for Customer Refund under Setup > Company > Auto-Generated Numbers to keep the Zoho-based number.');\n}\n\nreturn result({ ...data,\n  refund_complete: true,\n  refund_existing: duplicate,\n  refund_id: refundId,\n  refund_document_number: actualTranId || expectedTranId,\n  refund_applied_to_memo: appliedToMemo,\n  refund_notes: notes.join(' '),\n});"
+      },
+      "notes": "Confirms the refund exists, is applied to this credit memo, and reports the document number NetSuite assigned.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "refund-complete-0001",
+              "leftValue": "={{ $json.refund_complete === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        5152,
+        1100
+      ],
+      "id": "def83efe-086d-4859-9135-6dec07ec2a6f",
+      "name": "Customer Refund Verified?"
+    },
+    {
+      "id": "eb297bc3-e43c-46d4-9835-5674577d46f1",
+      "name": "Log Customer Refund Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5376,
+        1010
+      ],
+      "parameters": {
+        "jsCode": "// --- shared helpers -------------------------------------------------\nfunction readResponse(raw) {\n  raw = raw || {};\n  let body = raw.body ?? raw.data ?? raw;\n  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = { message: body }; } }\n  const status = Number(raw.statusCode || raw.error?.statusCode || raw.error?.httpCode || 0);\n  return { status, body: body || {}, error: raw.error, headers: raw.headers || {} };\n}\nfunction errorText(r) {\n  const details = r.body?.['o:errorDetails'];\n  if (Array.isArray(details) && details.length) return details.map(d => d.detail || d.message).join('; ');\n  return String(r.body?.detail || r.body?.message || r.error?.message || r.error || ('HTTP ' + r.status));\n}\nfunction result(json) { return [{ json, pairedItem: { item: 0 } }]; }\nfunction num(v) { const n = Number(v); return Number.isFinite(n) ? n : null; }\nfunction reportStore() {\n  const store = $getWorkflowStaticData('global');\n  if (!store.creditMemoReport) store.creditMemoReport = { startedAt: new Date().toISOString(), rows: [] };\n  return store.creditMemoReport;\n}\n// --------------------------------------------------------------------\n\nconst data = $input.first().json;\nconst cn = $('Return Credit Data').first().json.creditnote || {};\n\nreportStore().rows.push({\n  status: 'SUCCESS',\n  category: data.refund_existing ? 'Customer Refund Already Exists' : 'Customer Refund Created',\n  invoiceNumber: cn.creditnote_number || 'No Credit Note',\n  invoiceNumbers: (cn.invoices || []).map(i => i.invoice_number).filter(Boolean).join(', '),\n  customerName: cn.customer_name || '',\n  amount: Number(data.refund_amount || 0),\n  stage: 'Customer Refund',\n  message: ('Customer refund ' + (data.refund_document_number || '') + ' (NetSuite ID ' + data.refund_id +\n    ') for ' + Number(data.refund_amount || 0) + ' is applied to credit memo ' + (cn.creditnote_number || '') + '.' +\n    (data.refund_notes ? ' ' + data.refund_notes : '')).trim(),\n});\n\nreturn $input.all();"
+      }
+    },
+    {
+      "id": "c4e475cd-28ab-4f71-9be0-c2d3757568b4",
+      "name": "Log Refund Failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5376,
+        1260
+      ],
+      "parameters": {
+        "jsCode": "// --- shared helpers -------------------------------------------------\nfunction readResponse(raw) {\n  raw = raw || {};\n  let body = raw.body ?? raw.data ?? raw;\n  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = { message: body }; } }\n  const status = Number(raw.statusCode || raw.error?.statusCode || raw.error?.httpCode || 0);\n  return { status, body: body || {}, error: raw.error, headers: raw.headers || {} };\n}\nfunction errorText(r) {\n  const details = r.body?.['o:errorDetails'];\n  if (Array.isArray(details) && details.length) return details.map(d => d.detail || d.message).join('; ');\n  return String(r.body?.detail || r.body?.message || r.error?.message || r.error || ('HTTP ' + r.status));\n}\nfunction result(json) { return [{ json, pairedItem: { item: 0 } }]; }\nfunction num(v) { const n = Number(v); return Number.isFinite(n) ? n : null; }\nfunction reportStore() {\n  const store = $getWorkflowStaticData('global');\n  if (!store.creditMemoReport) store.creditMemoReport = { startedAt: new Date().toISOString(), rows: [] };\n  return store.creditMemoReport;\n}\n// --------------------------------------------------------------------\n\nconst data = $input.first().json;\nconst cn = $('Return Credit Data').first().json.creditnote || {};\n\nreportStore().rows.push({\n  status: 'FAILED',\n  category: 'Customer Refund Failed',\n  invoiceNumber: cn.creditnote_number || 'No Credit Note',\n  invoiceNumbers: (cn.invoices || []).map(i => i.invoice_number).filter(Boolean).join(', '),\n  customerName: cn.customer_name || '',\n  amount: Number(data.refund_amount || 0),\n  stage: 'Customer Refund',\n  // The credit memo is already created and already flagged as synced in Zoho,\n  // so only the refund needs following up.\n  message: String(data.error || 'The customer refund could not be created. The credit memo itself is unaffected.'),\n});\n\nreturn $input.all();"
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Separate Objects": {
+      "main": [
+        [
+          {
+            "node": "Filter Data with no Custom Field",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Records": {
+      "main": [
+        [
+          {
+            "node": "Get Credit Note Full Detail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Credit Note Full Detail": {
+      "main": [
+        [
+          {
+            "node": "Return Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Customer Internal ID": {
+      "main": [
+        [
+          {
+            "node": "Check if Customer Exist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check if Customer Exist": {
+      "main": [
+        [
+          {
+            "node": "Check Condition",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Data with no Custom Field": {
+      "main": [
+        [
+          {
+            "node": "Filter Records",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Check Condition": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Missing Customer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Build Consolidated Report Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Customer Internal ID",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Return Credit Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Replace Me": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Return Data": {
+      "main": [
+        [
+          {
+            "node": "Initialize Report Store",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Separate Items": {
+      "main": [
+        [
+          {
+            "node": "Check if Item Exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flat Data": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Return Credit Data": {
+      "main": [
+        [
+          {
+            "node": "Separate Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Merge the Processed Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge the Processed Data": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Return Payload": {
+      "main": [
+        [
+          {
+            "node": "Create Credit Note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Credit Note": {
+      "main": [
+        [
+          {
+            "node": "Check Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Return Credit Number",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Replace Me",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Status": {
+      "main": [
+        [
+          {
+            "node": "Log Credit Memo Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Return Credit Number": {
+      "main": [
+        [
+          {
+            "node": "Update Custom Field",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Custom Field": {
+      "main": [
+        [
+          {
+            "node": "Has Credit Note Refund?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Return Payload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Replace Me",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conditional Logic": {
+      "main": [
+        [
+          {
+            "node": "Flat Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Missing Item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check if Item Exists": {
+      "main": [
+        [
+          {
+            "node": "Conditional Logic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Webhook": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Initialize Report Store": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Credit Memo Result": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Missing Customer": {
+      "main": [
+        [
+          {
+            "node": "Replace Me",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Missing Item": {
+      "main": [
+        [
+          {
+            "node": "Replace Me",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Consolidated Report Data": {
+      "main": [
+        [
+          {
+            "node": "Prepare NetSuite Parent Report Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare NetSuite Parent Report Payload": {
+      "main": [
+        [
+          {
+            "node": "NetSuite - Create Automation Report Parent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NetSuite - Create Automation Report Parent": {
+      "main": [
+        [
+          {
+            "node": "NetSuite - Find Automation Report Parent ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NetSuite - Find Automation Report Parent ID": {
+      "main": [
+        [
+          {
+            "node": "Prepare NetSuite Child Report Lines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare NetSuite Child Report Lines": {
+      "main": [
+        [
+          {
+            "node": "NetSuite - Create Automation Report Child Lines",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Separate Objects",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook1": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Credit Note Refund?": {
+      "main": [
+        [
+          {
+            "node": "Refund Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Replace Me",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Refund Configuration": {
+      "main": [
+        [
+          {
+            "node": "Get Credit Memo for Refund",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Credit Memo for Refund": {
+      "main": [
+        [
+          {
+            "node": "Prepare Credit Note Refund",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Credit Note Refund": {
+      "main": [
+        [
+          {
+            "node": "Refund Data Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Refund Data Valid?": {
+      "main": [
+        [
+          {
+            "node": "Create Customer Refund",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Refund Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Customer Refund": {
+      "main": [
+        [
+          {
+            "node": "Read Customer Refund After Creation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Customer Refund After Creation": {
+      "main": [
+        [
+          {
+            "node": "Verify Customer Refund",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Customer Refund": {
+      "main": [
+        [
+          {
+            "node": "Customer Refund Verified?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Customer Refund Verified?": {
+      "main": [
+        [
+          {
+            "node": "Log Customer Refund Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Refund Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Customer Refund Result": {
+      "main": [
+        [
+          {
+            "node": "Replace Me",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Refund Failure": {
+      "main": [
+        [
+          {
+            "node": "Replace Me",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "9b42505e-5e53-4ed4-9e52-08a31df4e412",
+  "meta": {
+    "instanceId": "e219200b32b2f867fa86989095a931635722901d82d3761affbd88ad8afadfcf"
+  },
+  "id": "gLbvAPKH0phJjvTR",
+  "tags": []
+}
