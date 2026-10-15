@@ -1,0 +1,444 @@
+{
+  "name": "checkb0x ticked Invoice",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -4160,
+        -288
+      ],
+      "id": "bfd7d3c6-aca6-48b5-9fe9-f32c0e25c92d",
+      "name": "When clicking 'Execute workflow'"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b1c2d3e4-0002-4000-8000-000000000010",
+              "name": "from_date",
+              "value": "2026-01-13",
+              "type": "string"
+            },
+            {
+              "id": "b1c2d3e4-0002-4000-8000-000000000011",
+              "name": "to_date",
+              "value": "2026-04-12",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -3936,
+        -288
+      ],
+      "id": "2ca2623d-3c76-46c3-b348-240f2fedda6f",
+      "name": "Set Date Range"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -2816,
+        -288
+      ],
+      "id": "c13c46a2-76db-460f-97a2-dcf167a08de8",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "3c00ee7b-8872-419a-ad0d-c23eca0f130f",
+              "leftValue": "={{ $json.cf_synced_to_netsuite }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "f8639c64-1cd0-43bb-ac53-3df91f841aa3",
+              "leftValue": "={{ $json.cf_synced_to_netsuite }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "notExists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -2576,
+        -288
+      ],
+      "id": "029a16c2-b016-4294-b370-e8f80a368ba4",
+      "name": "return_invoices with zoho custom field"
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Code Node - Flatten Invoices\n// This code processes the nested invoice data structure and flattens it\n\n// Get the input data from the previous node\nconst inputData = $input.all();\n\n// Array to store flattened invoices\nconst flattenedInvoices = [];\n\n// Process each item from the input\nfor (const item of inputData) {\n  const data = item.json;\n  \n  // Check if data is an array (as shown in your example)\n  const dataArray = Array.isArray(data) ? data : [data];\n  \n  // Process each response object\n  for (const response of dataArray) {\n    // Check if invoices exist\n    if (response.invoices && Array.isArray(response.invoices)) {\n      // Flatten each invoice\n      for (const invoice of response.invoices) {\n        const flatInvoice = {\n          // Invoice basic info\n          invoice_id: invoice.invoice_id,\n          invoice_number: invoice.invoice_number,\n          number: invoice.number,\n          \n          // Customer info\n          customer_id: invoice.customer_id,\n          customer_name: invoice.customer_name,\n          email: invoice.email,\n          phone: invoice.phone,\n          country: invoice.country,\n          \n          // Dates\n          invoice_date: invoice.invoice_date,\n          due_date: invoice.due_date,\n          created_time: invoice.created_time,\n          updated_time: invoice.updated_time,\n          \n          // Financial info\n          currency_code: invoice.currency_code,\n          currency_symbol: invoice.currency_symbol,\n          total: invoice.total,\n          balance: invoice.balance,\n          \n          // Status and type\n          status: invoice.status,\n          transaction_type: invoice.transaction_type,\n          \n          // Billing address (flattened)\n          billing_street: invoice.billing_address?.street || invoice.billing_street || '',\n          billing_street2: invoice.billing_address?.street2 || invoice.billing_street2 || '',\n          billing_city: invoice.billing_address?.city || invoice.billing_city || '',\n          billing_state: invoice.billing_address?.state || invoice.billing_state || '',\n          billing_zipcode: invoice.billing_address?.zipcode || invoice.billing_zipcode || '',\n          billing_country: invoice.billing_address?.country || invoice.billing_country || '',\n          billing_phone: invoice.billing_address?.phone || invoice.billing_phone || '',\n          billing_fax: invoice.billing_address?.fax || '',\n          billing_attention: invoice.billing_address?.attention || '',\n          \n          // Shipping address (flattened)\n          shipping_street: invoice.shipping_address?.street || invoice.shipping_street || '',\n          shipping_street2: invoice.shipping_address?.street2 || invoice.shipping_street2 || '',\n          shipping_city: invoice.shipping_address?.city || invoice.shipping_city || '',\n          shipping_state: invoice.shipping_address?.state || invoice.shipping_state || '',\n          shipping_zipcode: invoice.shipping_address?.zipcode || invoice.shipping_zipcode || '',\n          shipping_country: invoice.shipping_address?.country || invoice.shipping_country || '',\n          shipping_phone: invoice.shipping_address?.phone || invoice.shipping_phone || '',\n          shipping_fax: invoice.shipping_address?.fax || '',\n          shipping_attention: invoice.shipping_address?.attention || '',\n          \n          // Additional info\n          project_name: invoice.project_name,\n          reference_number: invoice.reference_number,\n          created_by: invoice.created_by,\n          salesperson: invoice.salesperson,\n          salesperson_name: invoice.salesperson_name,\n          \n          // Custom fields\n          cf_customer_type: invoice.cf_customer_type,\n          cf_customer_type_unformatted: invoice.cf_customer_type_unformatted,\n          cf_synced_to_netsuite: invoice.cf_synced_to_netsuite,\n          cf_synced_to_netsuite_unformatted: invoice.cf_synced_to_netsuite_unformatted,\n          \n          // Flags\n          ach_payment_initiated: invoice.ach_payment_initiated,\n          is_viewed_by_client: invoice.is_viewed_by_client,\n          client_viewed_time: invoice.client_viewed_time,\n          has_attachment: invoice.has_attachment,\n          is_viewed_in_mail: invoice.is_viewed_in_mail,\n          mail_first_viewed_time: invoice.mail_first_viewed_time,\n          mail_last_viewed_time: invoice.mail_last_viewed_time,\n          \n          // Other fields\n          payment_expected_date: invoice.payment_expected_date,\n          service_start_date: invoice.service_start_date\n        };\n        \n        flattenedInvoices.push(flatInvoice);\n      }\n    }\n  }\n}\n\n// Return the flattened data in n8n format\nreturn flattenedInvoices.map(invoice => ({ json: invoice }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3504,
+        -288
+      ],
+      "id": "91848c5e-05ee-4be5-9d7f-5fdccaf047ae",
+      "name": "Flatten Invoices"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://www.zohoapis.com/billing/v1/invoices/{{ $json.invoice_id }}/customfields?organization_id=884904251",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n    \"custom_fields\": [\n        {\n            \"customfield_id\": \"6326029000010763135\",\n            \"value\": true\n        }\n    ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -2336,
+        -352
+      ],
+      "id": "23ad7925-cfe7-4cfd-990d-7c99b004b33a",
+      "name": "Update Custom Field",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "HzwpD51WsSrZyhcT",
+          "name": "Zoho Credential"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "187c9672-2f84-47f0-8f0a-25bff8f5cead",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "draft",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "be73fa3c-f74e-4a5c-9663-8ff0226610ee",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "void",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "cd88bb5e-2bc6-4e3e-b1b3-e51136106b15",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "pending",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -3056,
+        -288
+      ],
+      "id": "aea96877-2b9c-41af-ae93-e5da92d4b6ad",
+      "name": "Status Filter"
+    },
+    {
+      "parameters": {
+        "url": "=https://www.zohoapis.com/billing/v1/invoices?organization_id=884904251&date_start={{ $json.from_date }}&date_end={{ $json.to_date }}&per_page=200",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "options": {
+          "pagination": {
+            "pagination": {
+              "parameters": {
+                "parameters": [
+                  {
+                    "name": "page",
+                    "value": "={{ $pageCount + 1 }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.page_context.has_more_page }}",
+              "requestInterval": 200
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -3712,
+        -288
+      ],
+      "id": "9768409a-00c2-41d1-9b3b-f5cdbf7e394f",
+      "name": "get_invoice_by_invoice_number2",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "HzwpD51WsSrZyhcT",
+          "name": "Zoho Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Keep only invoices whose invoice_date is inside the configured window.\nconst range = $('Set Date Range').first().json;\nconst fromDate = range.from_date || '';\nconst toDate = range.to_date || '';\n\nreturn $input.all().filter(item => {\n  const d = item.json.invoice_date || '';\n  if (fromDate && d < fromDate) return false;\n  if (toDate && d > toDate) return false;\n  return true;\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3280,
+        -288
+      ],
+      "id": "9a9c921a-b22e-48ea-87fd-ac6182ea7fde",
+      "name": "Filter Date Range"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Classify the Zoho custom-field update as SUCCESS or ERROR.\nconst res = $input.first().json || {};\nlet inv = {};\ntry { inv = $('return_invoices with zoho custom field').item.json || {}; } catch (e) {}\n\n// Zoho returns code:0 on success; HTTP node puts an `error` object on failure.\nconst isError = !!res.error || (res.code !== undefined && res.code !== 0);\nconst message = isError\n  ? (res.error?.message || res.message || 'Zoho custom-field update failed')\n  : (res.message || 'Custom field updated (cf_synced_to_netsuite = true)');\n\nreturn [{\n  json: {\n    status: isError ? 'ERROR' : 'SUCCESS',\n    invoice_id: inv.invoice_id || '',\n    invoice_number: inv.invoice_number || '',\n    customer_name: inv.customer_name || '',\n    total: inv.total || 0,\n    invoice_date: inv.invoice_date || '',\n    zoho_status: inv.status || '',\n    message,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2112,
+        -352
+      ],
+      "id": "3ca2f435-9172-4620-8074-3f8d4e7debe8",
+      "name": "Log Result"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Already-synced invoices (cf_synced_to_netsuite = true) — input is the invoice itself.\nconst inv = $input.first().json || {};\nreturn [{\n  json: {\n    status: 'SKIPPED',\n    invoice_id: inv.invoice_id || '',\n    invoice_number: inv.invoice_number || '',\n    customer_name: inv.customer_name || '',\n    total: inv.total || 0,\n    invoice_date: inv.invoice_date || '',\n    zoho_status: inv.status || '',\n    message: 'Already synced (cf_synced_to_netsuite = true). Skipped.',\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2336,
+        -144
+      ],
+      "id": "45138756-c9c5-4bf0-bfed-d71e2760e194",
+      "name": "Log Skipped"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate all per-invoice log rows collected through the loop.\nconst rows = $input.all()\n  .map(i => i.json)\n  .filter(r => r && (r.invoice_id || r.invoice_number));\n\nconst total = rows.length;\nconst updated = rows.filter(r => r.status === 'SUCCESS').length;\nconst skipped = rows.filter(r => r.status === 'SKIPPED').length;\nconst failed = rows.filter(r => r.status === 'ERROR').length;\n\nreturn [{\n  json: {\n    summary: { total, updated, skipped, failed },\n    failedRows: rows.filter(r => r.status === 'ERROR'),\n    rows,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2816,
+        -528
+      ],
+      "id": "7d3beb71-6254-4b0e-8192-aa1fa39cd02c",
+      "name": "Build Summary"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking 'Execute workflow'": {
+      "main": [
+        [
+          {
+            "node": "Set Date Range",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Date Range": {
+      "main": [
+        [
+          {
+            "node": "get_invoice_by_invoice_number2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_invoice_by_invoice_number2": {
+      "main": [
+        [
+          {
+            "node": "Flatten Invoices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flatten Invoices": {
+      "main": [
+        [
+          {
+            "node": "Filter Date Range",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Date Range": {
+      "main": [
+        [
+          {
+            "node": "Status Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Status Filter": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Build Summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "return_invoices with zoho custom field",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "return_invoices with zoho custom field": {
+      "main": [
+        [
+          {
+            "node": "Update Custom Field",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Custom Field": {
+      "main": [
+        [
+          {
+            "node": "Log Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Result": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Skipped": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "0dbc5e46-36b3-414b-b2d0-154e6da0ac0e",
+  "meta": {
+    "instanceId": "e219200b32b2f867fa86989095a931635722901d82d3761affbd88ad8afadfcf"
+  },
+  "id": "pipGRfy7oxA8Wli4",
+  "tags": []
+}

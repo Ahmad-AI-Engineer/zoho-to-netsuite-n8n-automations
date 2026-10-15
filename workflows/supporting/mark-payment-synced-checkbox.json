@@ -1,0 +1,438 @@
+{
+  "name": "only checkbox ticked payment",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1120,
+        192
+      ],
+      "id": "d4f7c8f6-3eaf-42b2-9ab2-69d3062ca33c",
+      "name": "When clicking 'Execute workflow'"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1b2c3d4-0002-4000-8000-000000000010",
+              "name": "from_date",
+              "value": "2025-08-01",
+              "type": "string"
+            },
+            {
+              "id": "a1b2c3d4-0002-4000-8000-000000000011",
+              "name": "to_date",
+              "value": "2026-05-31",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -896,
+        192
+      ],
+      "id": "b3905983-9a1d-46db-871d-ffca823c18be",
+      "name": "Set Date Range"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -240,
+        192
+      ],
+      "id": "56b7e265-1493-41fe-b2db-0381b3e0530d",
+      "name": "Loop Over Items1"
+    },
+    {
+      "parameters": {
+        "url": "=https://www.zohoapis.com/billing/v1/payments/{{ $json.payment_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-com-zoho-subscriptions-organizationid",
+              "value": "884904251"
+            }
+          ]
+        },
+        "options": {
+          "pagination": {}
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        0,
+        192
+      ],
+      "id": "bcc324fe-7182-4a32-9e88-005994c13437",
+      "name": "Get a single payment",
+      "credentials": {
+        "oAuth2Api": {
+          "id": "HzwpD51WsSrZyhcT",
+          "name": "Zoho Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "59cf536e-cc85-4551-8d55-3c43a8b826e7",
+              "leftValue": "={{ ($json.payment.custom_field_hash?.cf_synced_to_netsuite_unformatted === true) || (String($json.payment.custom_field_hash?.cf_synced_to_netsuite || '').toLowerCase() === 'true') }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        224,
+        192
+      ],
+      "id": "432faf62-5ca4-4560-8041-ca0d6bee9a45",
+      "name": "Filter unprocessed payments"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get the payment data from 'Get a single payment' node\nconst payment = $('Get a single payment').item.json.payment;\nconst PAYMENT_SYNC_FIELD_ID = '6326029000010763609';\nconst PAYMENT_SYNC_FIELD_LABEL = 'Synced to NetSuite';\n\nif (!payment) {\n  throw new Error('Payment data not found from \"Get a single payment\" node');\n}\n\nconst syncField = (payment.custom_fields || []).find(field =>\n  field.customfield_id === PAYMENT_SYNC_FIELD_ID ||\n  field.field_id === PAYMENT_SYNC_FIELD_ID ||\n  field.api_name === 'cf_synced_to_netsuite' ||\n  field.placeholder === 'cf_synced_to_netsuite'\n) || {};\n\n// Prepare the update payload with all required fields\nconst payload = {\n  customer_id: payment.customer_id,\n  payment_mode: payment.payment_mode,\n  amount: payment.amount,\n  date: payment.date,\n  reference_number: payment.reference_number,\n  description: payment.description || '',\n  invoices: (payment.invoices || []).map(inv => ({\n    invoice_id: inv.invoice_id,\n    amount_applied: inv.amount_applied\n  })),\n  custom_fields: [\n    {\n      customfield_id: PAYMENT_SYNC_FIELD_ID,\n      label: syncField.label || PAYMENT_SYNC_FIELD_LABEL,\n      value: true  // Mark as processed/synced to NetSuite\n    }\n  ]\n};\n\n// Optional: Add other fields if they exist in the original payment\nif (payment.exchange_rate) {\n  payload.exchange_rate = payment.exchange_rate;\n}\n\nif (payment.bank_charges) {\n  payload.bank_charges = payment.bank_charges;\n}\n\nif (payment.tax_account_id) {\n  payload.tax_account_id = payment.tax_account_id;\n}\n\nif (payment.account_id) {\n  payload.account_id = payment.account_id;\n}\n\nconst originalValue = payment.custom_field_hash?.cf_synced_to_netsuite_unformatted ?? syncField.value ?? null;\n\nreturn {\n  json: {\n    payment_id: payment.payment_id,\n    payload: payload,\n    debug_info: {\n      payment_sync_customfield_id: PAYMENT_SYNC_FIELD_ID,\n      original_custom_field_value: originalValue,\n      new_custom_field_value: true,\n      payment_number: payment.payment_number,\n      customer_name: payment.customer_name,\n      amount: payment.amount\n    }\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        144
+      ],
+      "id": "38c71739-c52e-473d-b3f5-65258566a997",
+      "name": "Prepare Payload to Update Custom Field"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://www.zohoapis.com/billing/v1/payments/{{ $json.payment_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-com-zoho-subscriptions-organizationid",
+              "value": "884904251"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.payload }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        672,
+        144
+      ],
+      "id": "4da11ce0-38a5-423b-8ae4-5fdefa96ec42",
+      "name": "Update Payment",
+      "alwaysOutputData": true,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "HzwpD51WsSrZyhcT",
+          "name": "Zoho Credential"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "=https://www.zohoapis.com/billing/v1/payments",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "from_date",
+              "value": "={{ $json.from_date }}"
+            },
+            {
+              "name": "to_date",
+              "value": "={{ $json.to_date }}"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-com-zoho-subscriptions-organizationid",
+              "value": "884904251"
+            }
+          ]
+        },
+        "options": {
+          "pagination": {
+            "pagination": {
+              "parameters": {
+                "parameters": [
+                  {
+                    "name": "page",
+                    "value": "={{ $pageCount + 1 }}"
+                  }
+                ]
+              },
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.page_context.has_more_page }}",
+              "requestInterval": 200
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -688,
+        192
+      ],
+      "id": "e4169eb0-1e6a-4ea3-91ab-3de69434c8a9",
+      "name": "Get All Payments1",
+      "executeOnce": true,
+      "credentials": {
+        "oAuth2Api": {
+          "id": "HzwpD51WsSrZyhcT",
+          "name": "Zoho Credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Flatten Zoho payments and keep only those inside the configured date window.\nconst range = $('Set Date Range').first().json;\nconst fromDate = range.from_date || '';\nconst toDate = range.to_date || '';\n\nconst items = [];\nfor (const item of $input.all()) {\n  const payments = item.json.payments || [];\n  for (const payment of payments) {\n    const d = payment.date || '';\n    if (fromDate && d < fromDate) continue;   // before window\n    if (toDate && d > toDate) continue;        // after window\n    items.push({ json: payment });\n  }\n}\n\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -464,
+        192
+      ],
+      "id": "e39c0650-6021-4283-acf6-62cd9ebe10a9",
+      "name": "Break to separate Items"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Classify the Zoho PUT result as SUCCESS or ERROR (native, in-workflow log row).\nconst res = $input.first().json || {};\nlet payment = {};\ntry { payment = $('Get a single payment').item.json.payment || {}; } catch (e) {}\n\n// Zoho returns code:0 on success; HTTP node puts an `error` object on failure.\nconst isError = !!res.error || (res.code !== undefined && res.code !== 0);\nconst message = isError\n  ? (res.error?.message || res.message || 'Zoho update failed')\n  : (res.message || 'Custom field updated (cf_synced_to_netsuite = true)');\n\nreturn [{\n  json: {\n    status: isError ? 'ERROR' : 'SUCCESS',\n    payment_id: payment.payment_id || '',\n    payment_number: payment.payment_number || '',\n    customer_name: payment.customer_name || '',\n    amount: payment.amount || 0,\n    date: payment.date || '',\n    message,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        64
+      ],
+      "id": "a527a18d-d712-4152-83d3-cc49f47d773d",
+      "name": "Log Result"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log payments skipped because they are already synced.\nlet payment = {};\ntry { payment = $('Get a single payment').item.json.payment || {}; } catch (e) {}\n\nreturn [{\n  json: {\n    status: 'SKIPPED',\n    payment_id: payment.payment_id || '',\n    payment_number: payment.payment_number || '',\n    customer_name: payment.customer_name || '',\n    amount: payment.amount || 0,\n    date: payment.date || '',\n    message: 'Already synced (cf_synced_to_netsuite = true). Skipped.',\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        288
+      ],
+      "id": "4e47d6d7-cf35-4cdc-8311-1d1f31759f60",
+      "name": "Log Skipped"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate all per-payment log rows collected through the loop.\n// (Loop DONE branch receives every item routed back to the loop input.)\nconst rows = $input.all()\n  .map(i => i.json)\n  .filter(r => r && (r.payment_id || r.payment_number));\n\nconst total = rows.length;\nconst updated = rows.filter(r => r.status === 'SUCCESS').length;\nconst skipped = rows.filter(r => r.status === 'SKIPPED').length;\nconst failed = rows.filter(r => r.status === 'ERROR').length;\n\nreturn [{\n  json: {\n    summary: { total, updated, skipped, failed },\n    failedRows: rows.filter(r => r.status === 'ERROR'),\n    rows,\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "cc752fb0-36d0-4dfd-8574-5bf1991c0f18",
+      "name": "Build Summary"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking 'Execute workflow'": {
+      "main": [
+        [
+          {
+            "node": "Set Date Range",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Date Range": {
+      "main": [
+        [
+          {
+            "node": "Get All Payments1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get All Payments1": {
+      "main": [
+        [
+          {
+            "node": "Break to separate Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Break to separate Items": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items1": {
+      "main": [
+        [
+          {
+            "node": "Build Summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get a single payment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get a single payment": {
+      "main": [
+        [
+          {
+            "node": "Filter unprocessed payments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter unprocessed payments": {
+      "main": [
+        [
+          {
+            "node": "Prepare Payload to Update Custom Field",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Payload to Update Custom Field": {
+      "main": [
+        [
+          {
+            "node": "Update Payment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Payment": {
+      "main": [
+        [
+          {
+            "node": "Log Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Result": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Skipped": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "99871477-9ec6-4031-8a7c-32ef0d148c15",
+  "meta": {
+    "instanceId": "e219200b32b2f867fa86989095a931635722901d82d3761affbd88ad8afadfcf"
+  },
+  "id": "H1aDjG8UP2rjAYVa",
+  "tags": []
+}
