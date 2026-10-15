@@ -17,4 +17,4 @@ This workflow helps automate that process and reduces manual correction work.
 ## Workflow File
 
 ```text
-workflows/void-invoice-credit-memo-automation.json
+workflows/main/void-invoice-credit-memo-automation.json

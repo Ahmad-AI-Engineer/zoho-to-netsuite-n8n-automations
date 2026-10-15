@@ -15,4 +15,4 @@ When Zoho Billing and NetSuite are used together, credit memo data may need to b
 ## Workflow File
 
 ```text
-workflows/credit-memo-automation.json
+workflows/main/credit-memo-automation.json

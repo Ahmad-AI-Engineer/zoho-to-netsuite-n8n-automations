@@ -15,4 +15,4 @@ This workflow helps automate that process by moving invoice-related data from Zo
 ## Workflow File
 
 ```text
-workflows/invoice-automation.json
+workflows/main/invoice-automation.json

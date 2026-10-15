@@ -17,4 +17,4 @@ This workflow helps automate payment movement from Zoho Billing to NetSuite.
 ## Workflow File
 
 ```text
-workflows/payment-automation.json
+workflows/main/payment-automation.json
